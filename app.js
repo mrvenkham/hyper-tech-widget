@@ -15,7 +15,7 @@
       return x.protocol === 'https:' && (h === 'gumroad.com' || h.endsWith('.gumroad.com') || h === 'gum.co');
     } catch { return false; }
   };
-  for (const a of $('a[data-buy]')) {
+  for (const a of $$('a[data-buy]')) {
     const url = (SHOP[a.dataset.buy] || '').trim();
     if (!isGumroad(url)) continue;
     a.href = url;
