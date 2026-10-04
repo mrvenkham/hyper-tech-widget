@@ -1,7 +1,7 @@
 {
   "version": "1.0.2",
   "build": 3,
-  "apk": "https://github.com/abdulazizmerathemydin-del/hyper-tech-widget/releases/download/v1.0.2/HyDeck-1.0.2.apk",
+  "apk": "https://github.com/mrvenkham/hyper-tech-widget/releases/download/v1.0.2/HyDeck-1.0.2.apk",
   "sha256": "d91000fe03d29525bebd4480a29aa30826e20ffda8776fd89eaadc2ae615bd14",
   "size": 58086944,
   "notes": "The GYM theme pack and a News page",

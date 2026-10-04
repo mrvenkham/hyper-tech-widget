@@ -5,6 +5,27 @@
   const $$ = (s, r = document) => [...r.querySelectorAll(s)];
   const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
+  // Where each theme pack is sold. Paste your Gumroad product links here.
+  // While a link is empty the button stays on "Coming soon". Only https Gumroad addresses are accepted.
+  const SHOP = { midas: 'https://mrvenkham.gumroad.com/l/hydeck-midas', gym: '' };
+  const isGumroad = (u) => {
+    try {
+      const x = new URL(u);
+      const h = x.hostname.toLowerCase();
+      return x.protocol === 'https:' && (h === 'gumroad.com' || h.endsWith('.gumroad.com') || h === 'gum.co');
+    } catch { return false; }
+  };
+  for (const a of $('a[data-buy]')) {
+    const url = (SHOP[a.dataset.buy] || '').trim();
+    if (!isGumroad(url)) continue;
+    a.href = url;
+    a.target = '_blank';
+    a.rel = 'noopener';
+    a.textContent = 'Buy on Gumroad';
+    a.classList.remove('disabled');
+    a.removeAttribute('aria-disabled');
+  }
+
   // the looks that ship free, and the paid pack (locked)
   const FREE = ['cyan', 'red', 'hifi'];
   const NAMES = { cyan: 'CYAN LCD', red: 'RED MIXER', hifi: 'HI-FI', midas: 'MIDAS', gym: 'GYM' };
