@@ -1,0 +1,72 @@
+//@version=5
+// Gold Scalper — starting-template strategy for XAUUSD.
+// This is a TEMPLATE, not a proven edge. Backtest and forward-test on demo
+// before sending alerts to a live bot. Trend filter (EMA) + momentum pullback
+// (RSI) + ATR-based stop and target. Designed for low timeframes (1m–5m).
+strategy("Gold Scalper", overlay=true, pyramiding=0,
+     default_qty_type=strategy.percent_of_equity, default_qty_value=5,
+     commission_type=strategy.commission.cash_per_order, commission_value=0.0,
+     calc_on_every_tick=false)
+
+// ---- Inputs ----
+grpT = "Strategy"
+emaFastLen = input.int(21,  "Fast EMA",  minval=1,  group=grpT)
+emaSlowLen = input.int(50,  "Slow EMA",  minval=1,  group=grpT)
+rsiLen     = input.int(7,   "RSI length", minval=1, group=grpT)
+rsiBuy     = input.int(45,  "RSI buy pullback (long)",  group=grpT)
+rsiSell    = input.int(55,  "RSI sell pullback (short)", group=grpT)
+atrLen     = input.int(14,  "ATR length", minval=1, group=grpT)
+atrStopMult = input.float(1.5, "ATR stop multiple",   step=0.1, group=grpT)
+atrTpMult   = input.float(2.0, "ATR target multiple", step=0.1, group=grpT)
+
+grpS = "Session filter (exchange time)"
+useSession = input.bool(false, "Restrict to session", group=grpS)
+sess       = input.session("0700-2000", "Session", group=grpS)
+
+grpW = "Webhook"
+symbolTxt = input.string("XAUUSD", "Symbol sent to bot", group=grpW)
+secret    = input.string("__SECRET__", "Webhook secret (match bot .env)", group=grpW)
+
+// ---- Indicators ----
+emaFast = ta.ema(close, emaFastLen)
+emaSlow = ta.ema(close, emaSlowLen)
+rsi     = ta.rsi(close, rsiLen)
+atr     = ta.atr(atrLen)
+
+inSession = not useSession or not na(time(timeframe.period, sess))
+uptrend   = emaFast > emaSlow
+downtrend = emaFast < emaSlow
+
+// Enter on a pullback in the direction of the trend.
+longCond  = inSession and uptrend   and ta.crossover(rsi, rsiBuy)
+shortCond = inSession and downtrend and ta.crossunder(rsi, rsiSell)
+
+longSL  = close - atr * atrStopMult
+longTP  = close + atr * atrTpMult
+shortSL = close + atr * atrStopMult
+shortTP = close - atr * atrTpMult
+
+// ---- Alert payloads (JSON the bot understands) ----
+f_payload(action, sl, tp) =>
+    '{"secret":"' + secret + '","action":"' + action + '","symbol":"' + symbolTxt +
+     '","price":' + str.tostring(close) +
+     ',"sl":' + str.tostring(sl) + ',"tp":' + str.tostring(tp) +
+     ',"strategy":"gold_scalper","comment":"ema+rsi pullback"}'
+
+// ---- Orders + alerts ----
+if longCond
+    strategy.entry("Long", strategy.long)
+    strategy.exit("Long X", "Long", stop=longSL, limit=longTP)
+    alert(f_payload("buy", longSL, longTP), alert.freq_once_per_bar_close)
+
+if shortCond
+    strategy.entry("Short", strategy.short)
+    strategy.exit("Short X", "Short", stop=shortSL, limit=shortTP)
+    alert(f_payload("sell", shortSL, shortTP), alert.freq_once_per_bar_close)
+
+// Flatten alert when the strategy itself is flat again (optional belt-and-braces).
+if strategy.position_size == 0 and strategy.position_size[1] != 0
+    alert(f_payload("close", 0.0, 0.0), alert.freq_once_per_bar_close)
+
+plot(emaFast, "Fast EMA", color.new(color.aqua, 0))
+plot(emaSlow, "Slow EMA", color.new(color.orange, 0))

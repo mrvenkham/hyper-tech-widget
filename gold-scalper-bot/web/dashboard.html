@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Gold Scalper Bot</title>
+<style>
+  :root {
+    --bg: #0d0f14; --card: #171a22; --line: #262b36; --text: #e8eaed;
+    --muted: #9aa3b2; --gold: #f5c542; --green: #2fbf71; --red: #e5484d;
+    --accent: #3b82f6;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.45 -apple-system, system-ui, "Segoe UI", Roboto, sans-serif;
+    padding: 16px; max-width: 680px; margin-inline: auto;
+  }
+  header { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+  header h1 { font-size: 18px; margin: 0; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--muted); }
+  .dot.on { background: var(--green); } .dot.off { background: var(--red); }
+  .gold { color: var(--gold); }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 14px; margin-bottom: 12px; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .stat .label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+  .stat .value { font-size: 22px; font-weight: 650; margin-top: 2px; }
+  .pos { color: var(--green); } .neg { color: var(--red); }
+  button {
+    width: 100%; padding: 14px; border: none; border-radius: 12px; font-size: 16px;
+    font-weight: 650; cursor: pointer; color: #fff;
+  }
+  .btn-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .kill { background: var(--red); } .arm { background: var(--green); }
+  .flat { background: #4b5563; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: right; padding: 7px 6px; border-bottom: 1px solid var(--line); }
+  th:first-child, td:first-child { text-align: left; }
+  th { color: var(--muted); font-weight: 500; }
+  .muted { color: var(--muted); font-size: 12px; }
+  .banner { padding: 10px 12px; border-radius: 10px; font-size: 13px; margin-bottom: 12px; display: none; }
+  .banner.err { background: #3a1416; color: #ffb4b4; display: block; }
+  .banner.warn { background: #3a2f14; color: #ffe08a; display: block; }
+  .empty { color: var(--muted); padding: 8px 0; }
+</style>
+</head>
+<body>
+<header>
+  <span class="dot" id="dot"></span>
+  <h1><span class="gold">Gold</span> Scalper Bot</h1>
+</header>
+
+<div class="banner" id="banner"></div>
+
+<div class="card grid">
+  <div class="stat"><div class="label">Balance</div><div class="value" id="balance">—</div></div>
+  <div class="stat"><div class="label">Today P&amp;L</div><div class="value" id="pnlToday">—</div></div>
+  <div class="stat"><div class="label">Open positions</div><div class="value" id="openCount">—</div></div>
+  <div class="stat"><div class="label">Mode</div><div class="value" id="mode">—</div></div>
+</div>
+
+<div class="card">
+  <div class="btn-row" style="margin-bottom:10px">
+    <button class="kill" id="killBtn">■ Kill &amp; halt</button>
+    <button class="arm" id="armBtn">▶ Arm trading</button>
+  </div>
+  <button class="flat" id="flatBtn">Flatten all positions</button>
+  <p class="muted" id="status" style="margin:10px 0 0">—</p>
+</div>
+
+<div class="card">
+  <div class="label stat" style="margin-bottom:8px">Open positions</div>
+  <table id="posTable">
+    <thead><tr><th>Side</th><th>Qty</th><th>Entry</th><th>SL</th><th>TP</th></tr></thead>
+    <tbody><tr><td colspan="5" class="empty">none</td></tr></tbody>
+  </table>
+</div>
+
+<div class="card">
+  <div class="label stat" style="margin-bottom:8px">Recent trades</div>
+  <table id="tradeTable">
+    <thead><tr><th>Side</th><th>Entry</th><th>Exit</th><th>P&amp;L</th></tr></thead>
+    <tbody><tr><td colspan="4" class="empty">none yet</td></tr></tbody>
+  </table>
+</div>
+
+<p class="muted">Paper mode risks no real money. Verify every setting before going live.</p>
+
+<script>
+  const params = new URLSearchParams(location.search);
+  const token = params.get("token") || "";
+  const q = (p) => p + (p.includes("?") ? "&" : "?") + "token=" + encodeURIComponent(token);
+  let refreshMs = 3000;
+
+  function money(n) {
+    const v = Number(n || 0);
+    return (v < 0 ? "-$" : "$") + Math.abs(v).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+  function signClass(n) { return Number(n) > 0 ? "pos" : Number(n) < 0 ? "neg" : ""; }
+  function banner(msg, kind) {
+    const b = document.getElementById("banner");
+    if (!msg) { b.className = "banner"; b.textContent = ""; return; }
+    b.className = "banner " + (kind || "err"); b.textContent = msg;
+  }
+
+  async function api(path, method = "GET") {
+    const res = await fetch(q(path), { method });
+    if (res.status === 401) { banner("Invalid or missing token. Open the page with ?token=YOUR_TOKEN", "err"); throw new Error("401"); }
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+  }
+
+  async function refresh() {
+    try {
+      const s = await api("/api/status");
+      banner("");
+      refreshMs = (s.config.refresh || 3) * 1000;
+      document.getElementById("dot").className = "dot " + (s.trading_enabled ? "on" : "off");
+      document.getElementById("balance").textContent = money(s.state.balance);
+      const pnl = document.getElementById("pnlToday");
+      pnl.textContent = money(s.state.realized_pnl_today);
+      pnl.className = "value " + signClass(s.state.realized_pnl_today);
+      document.getElementById("openCount").textContent = s.open_positions.length;
+      document.getElementById("mode").textContent = s.broker + (s.broker === "paper" ? " (sim)" : "");
+      document.getElementById("status").textContent =
+        (s.trading_enabled ? "Armed" : "HALTED") + " · " + s.state.last_event;
+      if (s.daily_loss_breached) banner("Daily loss limit reached — new entries blocked until tomorrow (UTC).", "warn");
+
+      const pb = document.querySelector("#posTable tbody");
+      pb.innerHTML = s.open_positions.length
+        ? s.open_positions.map(p => `<tr><td>${p.side}</td><td>${p.qty}</td><td>${p.entry_price}</td><td>${p.sl ?? "—"}</td><td>${p.tp ?? "—"}</td></tr>`).join("")
+        : `<tr><td colspan="5" class="empty">none</td></tr>`;
+
+      const trades = (s.state.trades || []).slice(-10).reverse();
+      const tb = document.querySelector("#tradeTable tbody");
+      tb.innerHTML = trades.length
+        ? trades.map(t => `<tr><td>${t.side}</td><td>${t.entry_price}</td><td>${t.exit_price}</td><td class="${signClass(t.pnl)}">${money(t.pnl)}</td></tr>`).join("")
+        : `<tr><td colspan="4" class="empty">none yet</td></tr>`;
+    } catch (e) { /* banner already set for known cases */ }
+  }
+
+  document.getElementById("killBtn").onclick = async () => {
+    if (!confirm("Flatten all positions and HALT trading?")) return;
+    try { await api("/api/kill", "POST"); refresh(); } catch (e) {}
+  };
+  document.getElementById("armBtn").onclick = async () => { try { await api("/api/arm", "POST"); refresh(); } catch (e) {} };
+  document.getElementById("flatBtn").onclick = async () => {
+    if (!confirm("Flatten all open positions now?")) return;
+    try { await api("/api/flat", "POST"); refresh(); } catch (e) {}
+  };
+
+  refresh();
+  setInterval(refresh, refreshMs);
+</script>
+</body>
+</html>

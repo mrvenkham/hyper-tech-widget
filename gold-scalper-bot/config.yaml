@@ -1,0 +1,42 @@
+# Gold Scalper Bot configuration.
+# Secrets live in .env, not here. These are tunable trading settings.
+
+# Which broker executes orders. "paper" simulates fills and risks no money.
+# Add your own in bot/brokers/ and set its name here to go live.
+broker: paper
+
+# Instrument the bot trades. Must match what TradingView sends in "symbol".
+symbol: XAUUSD
+
+# Account and sizing.
+account:
+  # Starting balance used by the paper broker and for percentage risk math.
+  starting_balance: 10000.0
+  currency: USD
+
+risk:
+  # Max fraction of balance to risk on a single trade (based on entry-to-stop
+  # distance). 0.005 = 0.5%.
+  per_trade_risk: 0.005
+  # Stop trading for the day once realized loss reaches this fraction of the
+  # day's starting balance. 0.03 = 3%.
+  daily_loss_limit: 0.03
+  # Never hold more than this many positions at once.
+  max_open_positions: 1
+  # Reject a signal that arrives without a stop-loss price.
+  require_stop_loss: true
+  # Fallback stop distance in price units if a signal omits sl but the above
+  # is false. For XAUUSD, 1.0 = $1 of gold.
+  default_stop_distance: 2.5
+
+# Optional trading-hours filter (UTC, 24h). Signals outside the window are
+# rejected. Set enabled: false to trade around the clock.
+session:
+  enabled: false
+  start_utc: "07:00"
+  end_utc: "20:00"
+  # Weekdays allowed: 0=Mon .. 6=Sun.
+  weekdays: [0, 1, 2, 3, 4]
+
+# How often the dashboard polls the bot for updates, in seconds.
+dashboard_refresh_seconds: 3
