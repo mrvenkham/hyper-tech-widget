@@ -1,0 +1,32 @@
+# Run the bot and a public Cloudflare tunnel with one command, on your own
+# always-on machine:
+#
+#   cp .env.example .env     # set WEBHOOK_SECRET and DASHBOARD_TOKEN
+#   docker compose up -d
+#   docker compose logs -f tunnel   # shows the https://...trycloudflare.com URL
+#
+# Your TradingView webhook URL is that printed URL + /webhook.
+# Stop everything with:  docker compose down
+#
+# This belongs on a machine that stays on (a home PC left running, or a VPS).
+# It will not work inside a throwaway cloud session, which blocks public tunnels.
+
+services:
+  bot:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      - PORT=8000
+    expose:
+      - "8000"
+    # Uncomment to also reach the dashboard directly on the LAN:
+    # ports:
+    #   - "8000:8000"
+
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    depends_on:
+      - bot
+    command: tunnel --no-autoupdate --url http://bot:8000
