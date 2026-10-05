@@ -47,6 +47,19 @@ python -m bot.main              # starts on http://0.0.0.0:8000
 
 Open `http://<machine-ip>:8000/?token=<DASHBOARD_TOKEN>` on your PC or phone.
 
+### One command (bot + public URL for TradingView)
+
+On your own PC or VPS, after creating `.env`:
+
+```bash
+./start.sh
+```
+
+It starts the bot, opens a public Cloudflare tunnel, and prints the
+`.../webhook` URL to paste into TradingView plus the dashboard link. Ctrl-C
+stops both. This must run on your machine, not in a throwaway cloud session —
+sandboxes block public tunnels.
+
 Run the tests:
 
 ```bash
