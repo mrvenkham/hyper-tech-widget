@@ -1,15 +1,13 @@
 {
-  "version": "1.0.3",
-  "build": 4,
-  "apk": "https://github.com/mrvenkham/hyper-tech-widget/releases/download/v1.0.3/HyDeck-1.0.3.apk",
-  "sha256": "9b5318741ae36b064c5ef97e08a5b5d7db75afca510234fc590c532ba1940d90",
+  "version": "1.0.4",
+  "build": 5,
+  "apk": "https://github.com/mrvenkham/hyper-tech-widget/releases/download/v1.0.4/HyDeck-1.0.4.apk",
+  "sha256": "21025d9d0580a370b5ca11817826a8e70cdbbb20ba17cf7476c967eaa703d036",
   "size": 58597303,
-  "notes": "Easier unlocking, MIDAS on Gumroad",
+  "notes": "GYM is on Gumroad",
   "changes": [
-    "NEW  The MIDAS theme pack is now on sale on Gumroad: a gold and marble look with a watch dial and a net worth that grows while your music plays.",
-    "NEW  Tap a locked pack to see what it is and how to get it. Buying happens on Gumroad in your browser, never inside HyDeck.",
-    "NEW  Paste the license key Gumroad gives you right after you buy, and the pack opens in seconds. The key only works on the phone you bought it for.",
-    "The YouTube Music tile now says that playing in the background needs YouTube Music Premium. That is YouTube's rule, and HyDeck can only follow what YouTube Music is playing."
+    "NEW  The GYM theme pack is now on sale on Gumroad. Tap the locked pack in the Library to see what it is and how to get it.",
+    "NEW  Paste the license key Gumroad gives you right after you buy, and GYM opens in seconds, the same easy way as MIDAS. The key only works on the phone you bought it for."
   ],
-  "message": "Thank you for using HyDeck. I make it myself, so every download means a lot. MIDAS is now on sale, and buying it is easier than ever: pay on Gumroad, paste your key, done. Tell me what you want next, and I will do my best to build it.\n— Hyper Tech Widget"
+  "message": "Thank you for using HyDeck. GYM is now on sale: pay on Gumroad, paste your key, and your pixel athlete is ready. Tell me what you want next, and I will do my best to build it.\n— Hyper Tech Widget"
 }
