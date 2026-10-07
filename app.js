@@ -7,7 +7,7 @@
 
   // Where each theme pack is sold. Paste your Gumroad product links here.
   // While a link is empty the button stays on "Coming soon". Only https Gumroad addresses are accepted.
-  const SHOP = { midas: 'https://mrvenkham.gumroad.com/l/hydeck-midas', gym: '' };
+  const SHOP = { midas: 'https://mrvenkham.gumroad.com/l/hydeck-midas', gym: 'https://mrvenkham.gumroad.com/l/hydeck-gym' };
   const isGumroad = (u) => {
     try {
       const x = new URL(u);
