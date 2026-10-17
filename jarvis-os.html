@@ -1,0 +1,789 @@
+<title>JARVIS OS</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<meta name="description" content="JARVIS OS: the phone's heart and second brain. A HUD console with a core reactor, a personal note and task brain, HyDeck project gauges and a command terminal.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Oxanium:wght@500;600;700;800&family=Saira:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<!-- Tailwind (play CDN, pinned) for layout utilities. The HUD look lives in the <style> block. -->
+<script src="https://cdn.tailwindcss.com/3.4.17"></script>
+
+<style>
+/* Layout: mobile-first single column (Core → Brain → Monitor → Terminal).
+   From 1024px: Core + Monitor stack on the left (5 cols), Brain on the right (7 cols),
+   Terminal spans the full width at the bottom. */
+:root {
+  --bg: #090a0f;
+  --panel: rgba(12, 16, 24, 0.62);
+  --panel-solid: #0e121a;
+  --line: rgba(0, 240, 255, 0.2);
+  --line-soft: rgba(0, 240, 255, 0.1);
+  --fg: #e4f6fb;
+  --muted: #7f93a3;
+  --dim: #4b5b69;
+  --cyan: #00f0ff;
+  --purple: #bc00ff;
+  --crimson: #ff0055;
+  --ok: #2bffb1;
+  --font-display: "Oxanium", "Rajdhani", ui-sans-serif, system-ui, sans-serif;
+  --font-body: "Saira", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color-scheme: dark;
+}
+html, body { background: var(--bg); color: var(--fg); }
+body { font-family: var(--font-body); font-size: 15px; line-height: 1.45; min-height: 100%; -webkit-font-smoothing: antialiased; }
+
+/* Atmosphere: radial glow + fine HUD grid behind, CRT scanlines in front (non-interactive). */
+body::after {
+  content: ""; position: fixed; inset: 0; z-index: -1; pointer-events: none;
+  background:
+    radial-gradient(40rem 28rem at 50% 8%, rgba(0, 240, 255, 0.10), transparent 65%),
+    radial-gradient(36rem 26rem at 100% 100%, rgba(188, 0, 255, 0.10), transparent 60%),
+    linear-gradient(rgba(0,240,255,0.04) 1px, transparent 1px) 0 0 / 100% 28px,
+    linear-gradient(90deg, rgba(0,240,255,0.04) 1px, transparent 1px) 0 0 / 28px 100%,
+    var(--bg);
+}
+.scanlines { position: fixed; inset: 0; z-index: 60; pointer-events: none; background: repeating-linear-gradient(to bottom, rgba(255,255,255,0.018) 0 1px, transparent 1px 3px); }
+.scanlines::after { content: ""; position: absolute; left: 0; right: 0; height: 120px; top: -120px; background: linear-gradient(to bottom, transparent, rgba(0,240,255,0.05), transparent); animation: sweep 7s linear infinite; }
+@keyframes sweep { to { transform: translateY(calc(100vh + 120px)); } }
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 40; background: var(--panel-solid); }
+
+.gutter { padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+
+/* ---------- Header ---------- */
+.topbar { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 30; background: rgba(9,10,15,0.78); border-bottom: 1px solid var(--line); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); }
+.logo { font-family: var(--font-display); font-weight: 800; font-size: 1.2rem; letter-spacing: 0.22em; }
+.logo b { color: var(--cyan); text-shadow: 0 0 14px rgba(0,240,255,0.7); font-weight: 800; }
+.logo-sub { font-family: var(--font-mono); font-size: 0.66rem; letter-spacing: 0.14em; color: var(--muted); text-transform: uppercase; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 9px; border: 1px solid var(--line-soft); font-family: var(--font-mono); font-size: 0.68rem; color: var(--muted); letter-spacing: 0.04em; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.chip b { color: var(--fg); font-weight: 600; }
+.dot { width: 7px; height: 7px; border-radius: 50%; background: var(--dim); flex: none; }
+.dot.ok { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
+.dot.cy { background: var(--cyan); box-shadow: 0 0 8px var(--cyan); }
+.dot.bad { background: var(--crimson); box-shadow: 0 0 8px var(--crimson); }
+.chip.focus { border-color: var(--purple); color: var(--purple); }
+
+/* ---------- Panels ---------- */
+.panel { position: relative; display: flex; flex-direction: column; min-width: 0; background: var(--panel); border: 1px solid var(--line); backdrop-filter: blur(12px) saturate(140%); -webkit-backdrop-filter: blur(12px) saturate(140%); box-shadow: 0 0 30px rgba(0,240,255,0.04), inset 0 0 40px rgba(0,240,255,0.025); }
+/* HUD corner ticks: all four corners, drawn with one gradient layer */
+.panel::before { content: ""; position: absolute; inset: -1px; pointer-events: none;
+  background:
+    linear-gradient(var(--c, var(--cyan)), var(--c, var(--cyan))) top left / 12px 2px,
+    linear-gradient(var(--c, var(--cyan)), var(--c, var(--cyan))) top left / 2px 12px,
+    linear-gradient(var(--c, var(--cyan)), var(--c, var(--cyan))) top right / 12px 2px,
+    linear-gradient(var(--c, var(--cyan)), var(--c, var(--cyan))) top right / 2px 12px,
+    linear-gradient(var(--c, var(--cyan)), var(--c, var(--cyan))) bottom left / 12px 2px,
+    linear-gradient(var(--c, var(--cyan)), var(--c, var(--cyan))) bottom left / 2px 12px,
+    linear-gradient(var(--c, var(--cyan)), var(--c, var(--cyan))) bottom right / 12px 2px,
+    linear-gradient(var(--c, var(--cyan)), var(--c, var(--cyan))) bottom right / 2px 12px;
+  background-repeat: no-repeat; filter: drop-shadow(0 0 4px var(--c, var(--cyan))); }
+.panel.p-purple { --c: var(--purple); border-color: rgba(188,0,255,0.25); }
+.panel-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; padding: 12px 16px; border-bottom: 1px solid var(--line-soft); }
+.panel-title { font-family: var(--font-display); font-weight: 700; font-size: 0.92rem; letter-spacing: 0.16em; text-transform: uppercase; }
+.panel-title i { font-style: normal; color: var(--c, var(--cyan)); margin-right: 8px; font-family: var(--font-mono); font-size: 0.72rem; letter-spacing: 0.08em; }
+.panel-tag { font-family: var(--font-mono); font-size: 0.64rem; letter-spacing: 0.1em; color: var(--dim); text-transform: uppercase; }
+.panel-body { padding: 14px 16px 16px; display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+
+/* ---------- Buttons & controls ---------- */
+.btn { position: relative; overflow: hidden; display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 9px 14px; border: 1px solid var(--line); background: rgba(0,240,255,0.04); color: var(--fg); font-family: var(--font-display); font-weight: 700; font-size: 0.78rem; letter-spacing: 0.12em; text-transform: uppercase; cursor: pointer; user-select: none; transition: border-color .15s, background-color .15s, box-shadow .15s, color .15s, transform .08s; }
+.btn:hover { border-color: var(--cyan); background: rgba(0,240,255,0.1); box-shadow: 0 0 18px rgba(0,240,255,0.3), inset 0 0 10px rgba(0,240,255,0.1); color: #fff; }
+.btn:active { transform: scale(0.95); }
+.btn.primary { border-color: var(--cyan); color: var(--cyan); background: rgba(0,240,255,0.08); }
+.btn.sm { padding: 5px 9px; font-size: 0.68rem; }
+.btn:disabled { opacity: 0.45; cursor: not-allowed; transform: none; box-shadow: none; }
+.btn:focus-visible, .seg button:focus-visible, .core:focus-visible, .field:focus-visible, .check:focus-visible, .x:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+.ripple { position: absolute; border-radius: 50%; pointer-events: none; background: rgba(0,240,255,0.4); transform: scale(0); animation: ripple .5s ease-out forwards; }
+@keyframes ripple { to { transform: scale(1); opacity: 0; } }
+
+.field { min-width: 0; padding: 10px 12px; background: rgba(0,0,0,0.4); border: 1px solid var(--line-soft); color: var(--fg); font-family: var(--font-body); font-size: 16px; transition: border-color .15s, box-shadow .15s; }
+.field::placeholder { color: var(--dim); }
+.field:focus { outline: none; border-color: var(--cyan); box-shadow: 0 0 14px rgba(0,240,255,0.22); }
+
+.seg { display: inline-flex; border: 1px solid var(--line-soft); }
+.seg button { padding: 5px 10px; font-family: var(--font-mono); font-size: 0.66rem; letter-spacing: 0.1em; color: var(--muted); transition: color .15s, background-color .15s, box-shadow .15s; }
+.seg button + button { border-left: 1px solid var(--line-soft); }
+.seg button:hover { color: var(--fg); background: rgba(0,240,255,0.06); }
+.seg button[aria-pressed="true"] { color: var(--bg); background: var(--cyan); box-shadow: 0 0 12px rgba(0,240,255,0.5); }
+
+/* ---------- 1. Core engine ---------- */
+.core-wrap { display: grid; place-items: center; padding: 6px 0 2px; }
+.core { position: relative; width: min(250px, 70vw); aspect-ratio: 1; max-width: 100%; border-radius: 50%; cursor: pointer; transition: transform .2s; -webkit-tap-highlight-color: transparent; }
+.core:hover { transform: scale(1.025); }
+.core:active { transform: scale(0.97); }
+.core svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.ring-a { transform-origin: 50% 50%; animation: spin 18s linear infinite; }
+.ring-b { transform-origin: 50% 50%; animation: spin 11s linear infinite reverse; }
+.ring-c { transform-origin: 50% 50%; animation: spin 30s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.heart { transform-origin: 50% 50%; animation: beat 1.6s ease-in-out infinite; }
+@keyframes beat { 0%, 100% { transform: scale(1); } 12% { transform: scale(1.08); } 24% { transform: scale(0.98); } 36% { transform: scale(1.05); } }
+.core-label { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; pointer-events: none; }
+.core-label b { font-family: var(--font-display); font-weight: 800; font-size: 1.5rem; letter-spacing: 0.08em; color: #fff; text-shadow: 0 0 16px var(--cyan); font-variant-numeric: tabular-nums; }
+.core-label span { font-family: var(--font-mono); font-size: 0.6rem; letter-spacing: 0.2em; color: var(--cyan); }
+.shock { position: absolute; inset: 0; border-radius: 50%; border: 2px solid var(--cyan); pointer-events: none; animation: shock .9s ease-out forwards; box-shadow: 0 0 24px var(--cyan); }
+@keyframes shock { from { transform: scale(0.45); opacity: 1; } to { transform: scale(1.35); opacity: 0; } }
+.core.pulsing .heart { animation: burst .6s ease-out; }
+@keyframes burst { 0% { transform: scale(1); } 30% { transform: scale(1.3); filter: brightness(1.8); } 100% { transform: scale(1); } }
+.core.critical { --core: var(--crimson); }
+.status-line { text-align: center; font-family: var(--font-display); font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase; font-size: 0.86rem; }
+.status-line b { color: var(--ok); text-shadow: 0 0 12px rgba(43,255,177,0.6); }
+.status-line b.warn { color: var(--crimson); text-shadow: 0 0 12px rgba(255,0,85,0.6); }
+.readouts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1px; background: var(--line-soft); border: 1px solid var(--line-soft); }
+.readout { background: var(--panel-solid); padding: 8px 10px; min-width: 0; }
+.readout .l { font-family: var(--font-mono); font-size: 0.58rem; letter-spacing: 0.14em; color: var(--muted); text-transform: uppercase; }
+.readout .v { font-family: var(--font-display); font-weight: 700; font-size: 1.05rem; font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.syslog { font-family: var(--font-mono); font-size: 0.72rem; line-height: 1.6; color: var(--muted); max-height: 118px; overflow-y: auto; border-top: 1px dashed var(--line-soft); padding-top: 8px; scrollbar-width: thin; scrollbar-color: var(--dim) transparent; }
+.syslog div { animation: fadeIn .3s ease-out; overflow-wrap: anywhere; }
+.syslog time { color: var(--dim); margin-right: 8px; }
+.syslog .ok { color: var(--ok); } .syslog .cy { color: var(--cyan); } .syslog .bad { color: var(--crimson); }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } }
+
+/* ---------- 2. Second brain ---------- */
+.brain-form { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
+.brain-tools { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; }
+.storage-note { font-family: var(--font-mono); font-size: 0.64rem; letter-spacing: 0.06em; color: var(--muted); display: inline-flex; gap: 6px; align-items: center; }
+.index { display: flex; flex-direction: column; max-height: 520px; min-height: 220px; overflow-y: auto; border-top: 1px solid var(--line-soft); scrollbar-width: thin; scrollbar-color: var(--dim) transparent; }
+.entry { display: grid; grid-template-columns: 26px minmax(0, 1fr) auto; gap: 10px; align-items: start; padding: 10px 2px; border-bottom: 1px solid var(--line-soft); transition: background-color .15s; }
+.entry:hover { background: rgba(0,240,255,0.03); }
+.entry.new { animation: inject .5s ease-out; }
+@keyframes inject { 0% { background: rgba(0,240,255,0.22); transform: translateX(-6px); } 100% { background: transparent; transform: none; } }
+.check { width: 20px; height: 20px; margin-top: 2px; border: 1px solid var(--cyan); display: grid; place-items: center; transition: background-color .15s, box-shadow .15s; cursor: pointer; }
+.check:hover { box-shadow: 0 0 10px rgba(0,240,255,0.5); }
+.check[aria-checked="true"] { background: var(--cyan); }
+.check[aria-checked="true"]::after { content: ""; width: 9px; height: 5px; border: solid var(--bg); border-width: 0 0 2px 2px; transform: rotate(-45deg) translate(1px, -1px); }
+.glyph { width: 20px; height: 20px; margin-top: 2px; display: grid; place-items: center; font-family: var(--font-mono); font-size: 0.8rem; }
+.glyph.note { color: var(--cyan); } .glyph.idea { color: var(--purple); }
+.e-text { overflow-wrap: anywhere; font-size: 0.95rem; }
+.entry.done .e-text { color: var(--dim); text-decoration: line-through; }
+.e-meta { font-family: var(--font-mono); font-size: 0.62rem; letter-spacing: 0.08em; color: var(--dim); margin-top: 2px; text-transform: uppercase; }
+.e-meta .t-task { color: var(--cyan); } .e-meta .t-note { color: var(--muted); } .e-meta .t-idea { color: var(--purple); }
+.e-meta .pending { color: var(--purple); }
+.x { width: 28px; height: 28px; display: grid; place-items: center; color: var(--dim); border: 1px solid transparent; transition: color .15s, border-color .15s, background-color .15s; }
+.x:hover { color: var(--crimson); border-color: rgba(255,0,85,0.5); background: rgba(255,0,85,0.08); }
+.x.armed { color: var(--crimson); border-color: var(--crimson); background: rgba(255,0,85,0.12); }
+.x svg { width: 14px; height: 14px; }
+.empty { padding: 26px 8px; text-align: center; color: var(--muted); font-size: 0.9rem; }
+.empty b { display: block; font-family: var(--font-display); letter-spacing: 0.14em; color: var(--fg); margin-bottom: 4px; text-transform: uppercase; font-size: 0.82rem; }
+
+/* ---------- 3. Project monitor ---------- */
+.metric { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 10px; align-items: center; }
+.m-name { font-family: var(--font-display); font-weight: 600; font-size: 0.86rem; letter-spacing: 0.06em; }
+.m-src { font-family: var(--font-mono); font-size: 0.6rem; color: var(--dim); letter-spacing: 0.08em; text-transform: uppercase; }
+.m-val { font-family: var(--font-mono); font-size: 0.84rem; font-variant-numeric: tabular-nums; text-align: right; }
+.m-val small { color: var(--dim); }
+.bar { grid-column: 1 / -1; height: 10px; position: relative; background: rgba(0,240,255,0.06); border: 1px solid var(--line-soft); overflow: hidden; }
+.bar-fill { position: absolute; inset: 0 auto 0 0; width: 0; background: linear-gradient(90deg, var(--mc, var(--cyan)), color-mix(in srgb, var(--mc, var(--cyan)) 55%, #fff)); box-shadow: 0 0 12px var(--mc, var(--cyan)); transition: width 1.1s cubic-bezier(.2,.8,.2,1); }
+.bar::after { content: ""; position: absolute; inset: 0; background: repeating-linear-gradient(90deg, transparent 0 9px, rgba(9,10,15,0.75) 9px 10px); pointer-events: none; }
+.m-ctrl { grid-column: 1 / -1; display: flex; gap: 6px; justify-content: flex-end; }
+.metric.complete .m-val { color: var(--ok); }
+
+/* ---------- 4. Terminal ---------- */
+.term { font-family: var(--font-mono); font-size: 0.82rem; line-height: 1.55; background: rgba(0,0,0,0.5); }
+.term-out { height: 260px; overflow-y: auto; padding: 12px 16px; scrollbar-width: thin; scrollbar-color: var(--dim) transparent; }
+.term-out div { white-space: pre-wrap; overflow-wrap: anywhere; animation: fadeIn .2s ease-out; }
+.t-in { color: var(--fg); } .t-in::before { content: "boss@jarvis:~$ "; color: var(--purple); }
+.t-j { color: var(--cyan); } .t-j::before { content: "JARVIS › "; color: var(--dim); }
+.t-sys { color: var(--muted); } .t-ok { color: var(--ok); } .t-err { color: var(--crimson); }
+.term-form { display: flex; align-items: center; gap: 8px; padding: 10px 16px 14px; border-top: 1px solid var(--line-soft); }
+.term-form .prompt { color: var(--purple); font-family: var(--font-mono); font-size: 0.8rem; white-space: nowrap; }
+.term-form .field { flex: 1; font-family: var(--font-mono); background: transparent; border-color: transparent; padding-left: 4px; }
+.term-form .field:focus { border-color: var(--line-soft); box-shadow: none; }
+.quick-cmds { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 16px 14px; }
+
+/* ---------- Toasts ---------- */
+.toasts { position: fixed; z-index: 70; display: flex; flex-direction: column; gap: 8px; align-items: flex-end; right: max(16px, env(safe-area-inset-right, 0px)); bottom: calc(16px + env(safe-area-inset-bottom, 0px)); max-width: calc(100vw - 32px); pointer-events: none; }
+.toast { padding: 10px 14px; background: rgba(14,18,26,0.96); border: 1px solid var(--cyan); box-shadow: 0 0 20px rgba(0,240,255,0.25); font-size: 0.86rem; animation: fadeIn .2s ease-out; transition: opacity .3s; }
+.toast.err { border-color: var(--crimson); box-shadow: 0 0 20px rgba(255,0,85,0.3); }
+.toast.out { opacity: 0; }
+footer { font-family: var(--font-mono); font-size: 0.66rem; color: var(--dim); letter-spacing: 0.06em; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
+  .scanlines::after { display: none; }
+}
+</style>
+
+<div class="scanlines" aria-hidden="true"></div>
+
+<!-- ═════════════════════════════ HEADER ═════════════════════════════ -->
+<header class="topbar">
+  <div class="gutter py-3 flex flex-wrap items-center justify-between gap-3 max-w-[1280px] mx-auto">
+    <div class="min-w-0">
+      <div class="logo">J.A.R.V.I.S <b>OS</b></div>
+      <div class="logo-sub">The phone's heart &amp; second brain</div>
+    </div>
+    <div class="chips" aria-label="System status">
+      <span class="chip"><span class="dot ok" id="h-core-dot"></span>Core <b id="h-core">Optimized</b></span>
+      <span class="chip"><span class="dot" id="h-store-dot"></span>Brain <b id="h-store">Linking…</b></span>
+      <span class="chip focus" id="h-focus" hidden>Focus <b id="h-focus-t">25:00</b></span>
+      <span class="chip"><b id="h-clock">--:--</b></span>
+    </div>
+  </div>
+</header>
+
+<!-- ═════════════════════════════ CONSOLE ═════════════════════════════ -->
+<main class="gutter max-w-[1280px] mx-auto" style="padding-block: 16px 24px;">
+  <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
+
+    <!-- ── 1. Core engine (the phone's heart) ── -->
+    <section class="panel lg:col-span-5" aria-labelledby="t-core">
+      <div class="panel-head">
+        <h2 class="panel-title" id="t-core"><i>M1</i>Core Engine</h2>
+        <span class="panel-tag">Tap the heart to optimize</span>
+      </div>
+      <div class="panel-body">
+        <div class="core-wrap">
+          <button type="button" class="core" id="core" aria-label="Run optimization pulse">
+            <svg viewBox="0 0 200 200" aria-hidden="true">
+              <defs>
+                <radialGradient id="g-heart" cx="50%" cy="50%" r="50%">
+                  <stop offset="0" stop-color="#ffffff"/>
+                  <stop offset="0.35" stop-color="#00f0ff"/>
+                  <stop offset="1" stop-color="#00f0ff" stop-opacity="0"/>
+                </radialGradient>
+                <filter id="f-glow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="2.5"/></filter>
+              </defs>
+              <circle cx="100" cy="100" r="96" fill="none" stroke="#00f0ff" stroke-opacity="0.15" stroke-width="1"/>
+              <g class="ring-c"><circle cx="100" cy="100" r="90" fill="none" stroke="#00f0ff" stroke-opacity="0.45" stroke-width="1" stroke-dasharray="2 6"/></g>
+              <g class="ring-a"><circle cx="100" cy="100" r="78" fill="none" stroke="#00f0ff" stroke-width="2.5" stroke-dasharray="70 18 22 18" filter="url(#f-glow)"/><circle cx="100" cy="100" r="78" fill="none" stroke="#00f0ff" stroke-width="1.5" stroke-dasharray="70 18 22 18"/></g>
+              <g class="ring-b"><circle cx="100" cy="100" r="64" fill="none" stroke="#bc00ff" stroke-width="2" stroke-dasharray="10 8"/></g>
+              <g id="ticks"></g>
+              <g class="heart">
+                <circle cx="100" cy="100" r="48" fill="url(#g-heart)" opacity="0.55"/>
+                <circle cx="100" cy="100" r="38" fill="#0e121a" stroke="#00f0ff" stroke-width="2"/>
+                <circle cx="100" cy="100" r="30" fill="none" stroke="#00f0ff" stroke-opacity="0.5" stroke-width="1"/>
+              </g>
+            </svg>
+            <span class="core-label"><b id="core-pct">98%</b><span>EFFICIENCY</span></span>
+          </button>
+        </div>
+        <div class="status-line" id="status-line">System Status: <b>Optimized</b></div>
+        <div class="readouts">
+          <div class="readout"><div class="l">Pulses</div><div class="v" id="r-pulses">0</div></div>
+          <div class="readout"><div class="l">Brain</div><div class="v" id="r-brain">0</div></div>
+          <div class="readout"><div class="l">Uptime</div><div class="v" id="r-uptime">00:00</div></div>
+        </div>
+        <div class="syslog" id="syslog" aria-live="polite"></div>
+      </div>
+    </section>
+
+    <!-- ── 2. Second brain ── -->
+    <section class="panel p-purple lg:col-span-7 lg:row-span-2" aria-labelledby="t-brain">
+      <div class="panel-head">
+        <h2 class="panel-title" id="t-brain"><i>M2</i>Second Brain</h2>
+        <span class="panel-tag" id="brain-count">0 entries</span>
+      </div>
+      <div class="panel-body" style="flex:1">
+        <form class="brain-form" id="brain-form" autocomplete="off">
+          <label for="brain-input" class="sr-only">Note or task</label>
+          <input class="field" id="brain-input" maxlength="280" placeholder="Dump a thought, task or idea…">
+          <button class="btn primary" type="submit">Input to Brain</button>
+        </form>
+        <div class="brain-tools">
+          <div class="seg" role="group" aria-label="Entry type" id="type-seg">
+            <button type="button" data-type="task" aria-pressed="true">TASK</button>
+            <button type="button" data-type="note" aria-pressed="false">NOTE</button>
+            <button type="button" data-type="idea" aria-pressed="false">IDEA</button>
+          </div>
+          <div class="seg" role="group" aria-label="Show" id="filter-seg">
+            <button type="button" data-filter="all" aria-pressed="true">ALL</button>
+            <button type="button" data-filter="open" aria-pressed="false">OPEN</button>
+            <button type="button" data-filter="done" aria-pressed="false">DONE</button>
+          </div>
+        </div>
+        <div class="storage-note" id="storage-note"><span class="dot"></span>Linking to your private brain…</div>
+        <div class="index" id="index" aria-live="polite"></div>
+      </div>
+    </section>
+
+    <!-- ── 3. Project variable monitor ── -->
+    <section class="panel lg:col-span-5" aria-labelledby="t-mon">
+      <div class="panel-head">
+        <h2 class="panel-title" id="t-mon"><i>M3</i>HyDeck Monitor</h2>
+        <span class="panel-tag">Starting values · tap to adjust</span>
+      </div>
+      <div class="panel-body" id="monitor"></div>
+    </section>
+
+    <!-- ── 4. Command terminal ── -->
+    <section class="panel lg:col-span-12" aria-labelledby="t-term">
+      <div class="panel-head">
+        <h2 class="panel-title" id="t-term"><i>M4</i>Command Line</h2>
+        <span class="panel-tag">Type /help · ↑ for history</span>
+      </div>
+      <div class="term">
+        <div class="term-out" id="term-out" aria-live="polite"></div>
+        <form class="term-form" id="term-form" autocomplete="off">
+          <span class="prompt" aria-hidden="true">boss@jarvis:~$</span>
+          <label for="term-input" class="sr-only">Command</label>
+          <input class="field" id="term-input" spellcheck="false" autocapitalize="off" placeholder="/optimize">
+          <button class="btn sm" type="submit">Run</button>
+        </form>
+        <div class="quick-cmds" id="quick-cmds"></div>
+      </div>
+    </section>
+  </div>
+
+  <footer class="mt-5 flex flex-wrap justify-between gap-2">
+    <span>JARVIS OS · HyDeck Core v1.0 · Hyper Tech Widget</span>
+    <span>Monitor values are starting examples. Brain entries are yours.</span>
+  </footer>
+</main>
+
+<div class="toasts" id="toasts" aria-live="polite"></div>
+
+<script>
+/* ════════════════════════════════════════════════════════════════════════════
+   JARVIS OS — data flow
+   ────────────────────────────────────────────────────────────────────────────
+   UI modules never touch storage directly. They call `Brain` / `Monitor`,
+   which talk to whichever STORAGE ADAPTER is active:
+
+     [ M1 Core ] [ M2 Brain ] [ M3 Monitor ] [ M4 Terminal ]
+              \        |            |           /
+               ▼       ▼            ▼          ▼
+                  Brain / Monitor services
+                           │
+            ┌──────────────┼───────────────────────────┐
+            ▼              ▼                           ▼
+     CloudAdapter     LocalAdapter                (later) ApiAdapter
+     (claude.ai db:   (this browser only:         REST to your own
+      private per      localStorage fallback       backend or a local DB:
+      viewer, synced)  when the cloud is absent)   GET/POST/PATCH/DELETE
+                                                   /api/brain/notes/:id
+                                                   GET/PUT /api/monitor
+
+   Adding a backend = writing one more adapter with the same 5 methods
+   (subscribe, add, update, remove, saveMonitor). Nothing else changes.
+
+   Recall: `/sync-recall` is where a Recall integration would plug in.
+   Replace `Integrations.recallSync()` with a call to your Recall export
+   or integration endpoint and return the number of new docs it found.
+   ════════════════════════════════════════════════════════════════════════════ */
+
+const $ = s => document.querySelector(s);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const pad2 = n => String(n).padStart(2, "0");
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const now = () => { const d = new Date(); return `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`; };
+const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+const BOOT = Date.now();
+
+function toast(text, err) {
+  const el = document.createElement("div");
+  el.className = "toast" + (err ? " err" : "");
+  el.textContent = text;
+  $("#toasts").append(el);
+  setTimeout(() => { el.classList.add("out"); setTimeout(() => el.remove(), 320); }, 2600);
+}
+
+document.addEventListener("pointerdown", e => {
+  const b = e.target.closest(".btn"); if (!b || b.disabled || reduceMotion) return;
+  const r = b.getBoundingClientRect(), s = Math.max(r.width, r.height) * 2, sp = document.createElement("span");
+  sp.className = "ripple";
+  sp.style.cssText = `width:${s}px;height:${s}px;left:${e.clientX - r.left - s / 2}px;top:${e.clientY - r.top - s / 2}px`;
+  b.append(sp); setTimeout(() => sp.remove(), 520);
+});
+
+/* ════════════════════ Storage adapters ════════════════════ */
+
+// Cloud: the artifact's db capability. Each viewer's entries live under
+// data/users/<their id>/…, which the platform keeps private to that person.
+async function makeCloudAdapter() {
+  if (!window.claude?.use) return null;
+  const [db, user] = await Promise.all([window.claude.use("db"), window.claude.use("user")]);
+  if (!db || !user) return null;
+  const uid = await user.id();
+  if (!uid) return null;
+  const notes = db.doc(`data/users/${uid}/brain`).collection("notes");
+  const monitorRef = db.doc(`data/users/${uid}/monitor`);
+  return {
+    kind: "cloud",
+    subscribe(onNotes, onError) {
+      return notes.orderBy("createdAt", "desc").limit(500).onSnapshot(
+        snap => onNotes(snap.docs.map(d => ({ id: d.id, ...d.data(), pending: d.metadata.hasPendingWrites }))),
+        onError);
+    },
+    add: n => notes.doc(n.id).set({ text: n.text, type: n.type, done: false, createdAt: n.createdAt }),
+    update: (id, patch) => notes.doc(id).update(patch),
+    remove: id => notes.doc(id).delete(),
+    async loadMonitor() { const s = await monitorRef.get(); return s.exists ? s.data() : null; },
+    saveMonitor: data => monitorRef.set(data),
+  };
+}
+
+// Local: this browser only. Every access is wrapped, so a blocked storage
+// (private window, preview) still leaves a working in-memory brain.
+function makeLocalAdapter() {
+  const KEY = "jarvis.brain.v1", MKEY = "jarvis.monitor.v1";
+  const read = k => { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } };
+  const write = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} };
+  let list = read(KEY) || [], listener = null;
+  const emit = () => { write(KEY, list); listener && listener([...list].sort((a, b) => b.createdAt - a.createdAt)); };
+  return {
+    kind: "local",
+    subscribe(onNotes) { listener = onNotes; emit(); return () => { listener = null; }; },
+    async add(n) { list.push({ ...n, done: false }); emit(); },
+    async update(id, patch) { list = list.map(x => x.id === id ? { ...x, ...patch } : x); emit(); },
+    async remove(id) { list = list.filter(x => x.id !== id); emit(); },
+    async loadMonitor() { return read(MKEY); },
+    async saveMonitor(data) { write(MKEY, data); },
+  };
+}
+
+/* ════════════════════ Brain service ════════════════════ */
+const Brain = (() => {
+  let adapter = null, notes = [], ready = false;
+  const queue = []; // entries typed before storage finished linking
+  const listeners = [];
+  const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+
+  function set(list) { notes = list; listeners.forEach(f => f(notes)); }
+  function view() { return ready ? notes : [...queue.map(q => ({ ...q, done: false, pending: true })), ...notes]; }
+
+  function failed(e) {
+    const msg = e?.code === "quota_exceeded" ? "The brain is full. Delete some old entries, then try again."
+      : e?.code === "invalid_argument" ? "This viewer can read but not save entries here."
+      : "Could not save that. Check your connection and try again.";
+    toast(msg, true);
+    Core.log(msg, "bad");
+  }
+
+  async function attach(a) {
+    adapter = a;
+    adapter.subscribe(list => { ready = true; set(list); }, err => { failed(err); });
+    for (const q of queue.splice(0)) await adapter.add(q).catch(failed);
+  }
+
+  return {
+    attach,
+    get kind() { return adapter?.kind || "linking"; },
+    get all() { return view(); },
+    onChange(f) { listeners.push(f); },
+    async add(text, type) {
+      const n = { id: newId(), text: text.trim().slice(0, 280), type, createdAt: Date.now() };
+      if (!n.text) return null;
+      if (!adapter) { queue.push(n); listeners.forEach(f => f(notes)); return n; }
+      await adapter.add(n).catch(failed);
+      return n;
+    },
+    toggle(id) { const n = notes.find(x => x.id === id); if (n && adapter) adapter.update(id, { done: !n.done }).catch(failed); },
+    remove(id) { adapter && adapter.remove(id).catch(failed); },
+    loadMonitor: () => adapter ? adapter.loadMonitor().catch(() => null) : Promise.resolve(null),
+    saveMonitor: d => adapter ? adapter.saveMonitor(d).catch(failed) : Promise.resolve(),
+  };
+})();
+
+/* ════════════════════ M1: Core engine ════════════════════ */
+const Core = (() => {
+  const core = $("#core"), logEl = $("#syslog");
+  let pulses = 0, efficiency = 98;
+
+  // Tick marks around the reactor, drawn once.
+  $("#ticks").innerHTML = Array.from({ length: 60 }, (_, i) => {
+    const a = (i / 60) * Math.PI * 2, r1 = i % 5 ? 70 : 67, r2 = 72;
+    return `<line x1="${100 + Math.cos(a) * r1}" y1="${100 + Math.sin(a) * r1}" x2="${100 + Math.cos(a) * r2}" y2="${100 + Math.sin(a) * r2}" stroke="#00f0ff" stroke-opacity="${i % 5 ? 0.25 : 0.7}" stroke-width="1"/>`;
+  }).join("");
+
+  function log(text, cls = "") {
+    const d = document.createElement("div");
+    d.innerHTML = `<time>${now()}</time><span class="${cls}"></span>`;
+    d.lastChild.textContent = text;
+    logEl.prepend(d);
+    while (logEl.children.length > 30) logEl.lastChild.remove();
+  }
+
+  function pulse(source = "manual") {
+    pulses++;
+    efficiency = clamp(efficiency + (100 - efficiency) * 0.6, 0, 100);
+    $("#core-pct").textContent = Math.round(efficiency) + "%";
+    $("#r-pulses").textContent = pulses;
+    core.classList.remove("pulsing"); void core.offsetWidth; core.classList.add("pulsing");
+    if (!reduceMotion) {
+      for (let i = 0; i < 2; i++) setTimeout(() => {
+        const s = document.createElement("span"); s.className = "shock"; core.append(s); setTimeout(() => s.remove(), 950);
+      }, i * 160);
+    }
+    if (navigator.vibrate) { try { navigator.vibrate(18); } catch {} }
+    setStatus(true);
+    log(`Pulse #${pulses} (${source}). System Status: Optimized. Efficiency ${Math.round(efficiency)}%.`, "ok");
+  }
+
+  function setStatus(ok) {
+    $("#status-line").innerHTML = ok ? "System Status: <b>Optimized</b>" : "System Status: <b class=\"warn\">Needs a pulse</b>";
+    $("#h-core").textContent = ok ? "Optimized" : "Drifting";
+    $("#h-core-dot").className = "dot " + (ok ? "ok" : "bad");
+  }
+
+  // Efficiency drifts down slowly, so the heart wants attention now and then.
+  setInterval(() => {
+    efficiency = Math.max(61, efficiency - 0.35);
+    $("#core-pct").textContent = Math.round(efficiency) + "%";
+    if (efficiency < 75) setStatus(false);
+    const s = Math.floor((Date.now() - BOOT) / 1000);
+    $("#r-uptime").textContent = s >= 3600 ? `${Math.floor(s / 3600)}h ${pad2(Math.floor(s % 3600 / 60))}m` : `${pad2(Math.floor(s / 60))}:${pad2(s % 60)}`;
+  }, 1000);
+
+  core.addEventListener("click", () => pulse("manual"));
+  log("JARVIS OS online. All modules nominal.", "cy");
+  return { pulse, log };
+})();
+
+/* ════════════════════ M2: Second brain UI ════════════════════ */
+const BrainUI = (() => {
+  const index = $("#index"), input = $("#brain-input");
+  let type = "task", filter = "all", seen = null, armed = null;
+
+  const X = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M6 6l12 12M18 6L6 18"/></svg>';
+  const ago = t => { const m = Math.floor((Date.now() - t) / 60000); return m < 1 ? "just now" : m < 60 ? `${m}m ago` : m < 1440 ? `${Math.floor(m / 60)}h ago` : `${Math.floor(m / 1440)}d ago`; };
+
+  function render() {
+    const all = Brain.all;
+    const list = all.filter(n => filter === "all" || (filter === "done" ? n.done : !n.done));
+    const open = all.filter(n => n.type === "task" && !n.done).length;
+    $("#brain-count").textContent = `${all.length} entr${all.length === 1 ? "y" : "ies"} · ${open} open task${open === 1 ? "" : "s"}`;
+    $("#r-brain").textContent = all.length;
+
+    if (!list.length) {
+      index.innerHTML = Brain.kind === "linking"
+        ? `<div class="empty"><b>Linking…</b>Connecting to your private brain.</div>`
+        : all.length
+          ? `<div class="empty"><b>Nothing ${filter === "done" ? "done" : "open"} yet</b>Switch the filter to see the rest.</div>`
+          : `<div class="empty"><b>Brain is empty</b>Type a task, note or idea above and press Input to Brain. Try /brain from the terminal too.</div>`;
+    } else {
+      index.innerHTML = list.map(n => `
+        <div class="entry ${n.done ? "done" : ""} ${seen && !seen.has(n.id) ? "new" : ""}" data-id="${esc(n.id)}">
+          ${n.type === "task"
+            ? `<button type="button" class="check" role="checkbox" aria-checked="${!!n.done}" aria-label="Mark done" data-act="toggle"></button>`
+            : `<span class="glyph ${n.type}" aria-hidden="true">${n.type === "idea" ? "◆" : "▸"}</span>`}
+          <div class="min-w-0"><div class="e-text"></div>
+            <div class="e-meta"><span class="t-${n.type}">${n.type}</span> · ${ago(n.createdAt)}${n.pending ? ' · <span class="pending">saving</span>' : ""}</div></div>
+          <button type="button" class="x ${armed === n.id ? "armed" : ""}" data-act="del" aria-label="${armed === n.id ? "Tap again to delete" : "Delete"}">${X}</button>
+        </div>`).join("");
+      // User text goes in via textContent, never as HTML.
+      list.forEach(n => { const row = index.querySelector(`[data-id="${CSS.escape(n.id)}"] .e-text`); if (row) row.textContent = n.text; });
+    }
+    // Only animate entries added after the brain first loads, not the whole saved list.
+    if (Brain.kind !== "linking") seen = new Set(all.map(n => n.id));
+  }
+
+  $("#brain-form").addEventListener("submit", async e => {
+    e.preventDefault();
+    const text = input.value;
+    if (!text.trim()) { input.focus(); toast("Type something first, boss.", true); return; }
+    input.value = "";
+    const n = await Brain.add(text, type);
+    if (n) Core.log(`Brain ingested a ${type}: "${n.text.slice(0, 40)}${n.text.length > 40 ? "…" : ""}"`, "cy");
+  });
+
+  index.addEventListener("click", e => {
+    const btn = e.target.closest("[data-act]"); if (!btn) return;
+    const id = btn.closest("[data-id]").dataset.id;
+    if (btn.dataset.act === "toggle") {
+      Brain.toggle(id);
+    } else {
+      // Two-tap delete: first tap arms, second tap within 3 s deletes.
+      if (armed === id) { armed = null; Brain.remove(id); Core.log("Entry purged from the brain.", "bad"); }
+      else { armed = id; render(); setTimeout(() => { if (armed === id) { armed = null; render(); } }, 3000); }
+    }
+  });
+
+  function bindSeg(sel, attr, set) {
+    $(sel).addEventListener("click", e => {
+      const b = e.target.closest(`[data-${attr}]`); if (!b) return;
+      $(sel).querySelectorAll("button").forEach(x => x.setAttribute("aria-pressed", x === b));
+      set(b.dataset[attr]);
+    });
+  }
+  bindSeg("#type-seg", "type", v => { type = v; input.placeholder = v === "task" ? "Dump a task…" : v === "idea" ? "Capture an idea…" : "Write a note…"; input.focus(); });
+  bindSeg("#filter-seg", "filter", v => { filter = v; render(); });
+
+  Brain.onChange(render);
+  setInterval(render, 60000); // refresh the "5m ago" labels
+  render();
+  return { render };
+})();
+
+/* ════════════════════ M3: HyDeck project monitor ════════════════════ */
+// Starting examples. Each viewer's adjustments are saved to their own brain.
+// API: GET/PUT /api/monitor  { layout, recall, packs, release }
+const Monitor = (() => {
+  const DEFS = [
+    { key: "layout",  name: "Code Layout",            src: "HyDeck UI build",      unit: "%",    max: 100, step: 5, color: "var(--cyan)" },
+    { key: "recall",  name: "Assets Clipped via Recall", src: "Research library",  unit: "docs", max: 20,  step: 1, color: "var(--purple)" },
+    { key: "packs",   name: "Theme Packs Shipped",    src: "Gumroad · MIDAS, GYM", unit: "packs", max: 4,  step: 1, color: "var(--ok)" },
+    { key: "devlog",  name: "Devlog Video",           src: "Script → film → edit", unit: "%",    max: 100, step: 10, color: "var(--crimson)" },
+  ];
+  let values = { layout: 85, recall: 12, packs: 2, devlog: 20 }, saveTimer = null;
+  const el = $("#monitor");
+
+  el.innerHTML = DEFS.map(d => `
+    <div class="metric" id="m-${d.key}" style="--mc:${d.color}">
+      <div class="min-w-0"><div class="m-name">${d.name}</div><div class="m-src">${d.src}</div></div>
+      <div class="m-val" id="mv-${d.key}"></div>
+      <div class="bar" role="progressbar" aria-label="${d.name}" aria-valuemin="0" aria-valuemax="${d.max}" id="mb-${d.key}"><div class="bar-fill" id="mf-${d.key}"></div></div>
+      <div class="m-ctrl">
+        <button type="button" class="btn sm" data-k="${d.key}" data-d="-1" aria-label="Decrease ${d.name}">− ${d.step}</button>
+        <button type="button" class="btn sm" data-k="${d.key}" data-d="1" aria-label="Increase ${d.name}">+ ${d.step}</button>
+      </div>
+    </div>`).join("");
+
+  function render() {
+    for (const d of DEFS) {
+      const v = values[d.key];
+      $(`#mv-${d.key}`).innerHTML = d.unit === "%" ? `${v}<small>%</small>` : `${v}<small> / ${d.max} ${d.unit}</small>`;
+      $(`#mf-${d.key}`).style.width = (v / d.max) * 100 + "%";
+      $(`#mb-${d.key}`).setAttribute("aria-valuenow", v);
+      $(`#m-${d.key}`).classList.toggle("complete", v >= d.max);
+    }
+  }
+  function adjust(key, dir, quiet) {
+    const d = DEFS.find(x => x.key === key);
+    const before = values[key];
+    values[key] = clamp(before + dir * d.step, 0, d.max);
+    if (values[key] === before) { if (!quiet) toast(dir > 0 ? `${d.name} is already maxed.` : `${d.name} is already at zero.`); return; }
+    render();
+    if (!quiet) Core.log(`${d.name}: ${before} → ${values[key]}${d.unit === "%" ? "%" : ""}`, values[key] >= d.max ? "ok" : "");
+    if (values[key] >= d.max && before < d.max) toast(`${d.name} complete. Steady, boss.`);
+    clearTimeout(saveTimer); saveTimer = setTimeout(() => Brain.saveMonitor({ ...values }), 700); // one write per pause
+  }
+  el.addEventListener("click", e => { const b = e.target.closest("[data-k]"); if (b) adjust(b.dataset.k, +b.dataset.d); });
+
+  async function load() {
+    const saved = await Brain.loadMonitor();
+    if (saved) for (const d of DEFS) if (typeof saved[d.key] === "number") values[d.key] = clamp(saved[d.key], 0, d.max);
+    render();
+  }
+  // Start empty, then fill on the next frame so the bars visibly charge up.
+  requestAnimationFrame(() => requestAnimationFrame(render));
+  return { load, adjust, get values() { return values; }, DEFS };
+})();
+
+/* ════════════════════ Integrations (stubs to replace later) ════════════════════ */
+const Integrations = {
+  // Replace with your Recall integration. Resolve the number of new docs found.
+  recallSync: () => new Promise(r => setTimeout(() => r(Math.random() < 0.7 ? 1 : 0), 1400)),
+};
+
+/* ════════════════════ M4: Terminal ════════════════════ */
+const Terminal = (() => {
+  const out = $("#term-out"), input = $("#term-input");
+  const history = []; let hIdx = -1, focusTimer = null, focusEnd = 0;
+
+  function print(text, cls = "t-j") {
+    const d = document.createElement("div"); d.className = cls; d.textContent = text;
+    out.append(d); out.scrollTop = out.scrollHeight;
+  }
+  const say = t => print(t, "t-j");
+  const later = (ms, fn) => setTimeout(fn, reduceMotion ? 0 : ms);
+  const pick = a => a[Math.floor(Math.random() * a.length)];
+
+  const COMMANDS = {
+    "/help": { desc: "List commands", run() {
+      Object.entries(COMMANDS).forEach(([k, v]) => print(`${k.padEnd(16)} ${v.desc}`, "t-sys"));
+    } },
+    "/optimize": { desc: "Pulse the core", run() {
+      Core.pulse("terminal");
+      say(pick(["Core optimized. I also closed 14 Chrome tabs you were never going to read.",
+        "Efficiency restored. The RTX 5070 thanks you for not opening another Electron app.",
+        "Done. If only optimizing your sleep schedule were one command, boss."]));
+    } },
+    "/sync-recall": { desc: "Pull new clips from Recall", run() {
+      print("Handshaking with Recall…", "t-sys");
+      Integrations.recallSync().then(n => {
+        if (n) { Monitor.adjust("recall", 1, true); say(`Synced. ${n} new doc clipped. Library now at ${Monitor.values.recall}. Reading them is still your job.`); Core.log("Recall sync: +1 doc", "cy"); }
+        else say("Synced. Nothing new. Your research queue is either complete or you've been scrolling instead of clipping.");
+      });
+    } },
+    "/launch-hydeck": { desc: "Run the launch sequence", run() {
+      const steps = ["Compiling layout grid…", "Loading Tailwind tokens…", "Warming the neon…", "Checking Gumroad links…"];
+      steps.forEach((s, i) => later(350 * (i + 1), () => print(s, "t-sys")));
+      later(350 * (steps.length + 1), () => {
+        print("HyDeck launched. ✔", "t-ok");
+        say(Monitor.values.layout < 100 ? `Layout is at ${Monitor.values.layout}%. Ship it anyway. Version 1.0.5 can fix the last ${100 - Monitor.values.layout}%.` : "Layout at 100%. Rare sight. Post it before you find something to tweak.");
+        Core.pulse("launch");
+      });
+    } },
+    "/brain": { desc: "/brain <text>  add a task", async run(arg) {
+      if (!arg) return print("Usage: /brain finish the HyDeck pricing page", "t-err");
+      await Brain.add(arg, "task"); say("Stored as a task. I'll be watching that checkbox.");
+    } },
+    "/status": { desc: "System report", run() {
+      const all = Brain.all, open = all.filter(n => n.type === "task" && !n.done).length;
+      print(`Core ............ ${$("#core-pct").textContent}`, "t-sys");
+      print(`Brain ........... ${all.length} entries, ${open} open tasks (${Brain.kind === "cloud" ? "synced, private" : Brain.kind === "local" ? "this device only" : "linking"})`, "t-sys");
+      Monitor.DEFS.forEach(d => print(`${(d.name + " ").padEnd(16, ".")} ${Monitor.values[d.key]}${d.unit === "%" ? "%" : " / " + d.max}`, "t-sys"));
+      say(open > 5 ? `${open} open tasks. That's a backlog, not a plan. Pick one.` : "Systems nominal. Go build something.");
+    } },
+    "/focus": { desc: "/focus [min]  start a focus timer", run(arg) {
+      const min = clamp(parseInt(arg) || 25, 1, 120);
+      clearInterval(focusTimer); focusEnd = Date.now() + min * 60000;
+      $("#h-focus").hidden = false;
+      const tick = () => {
+        const left = Math.max(0, Math.round((focusEnd - Date.now()) / 1000));
+        $("#h-focus-t").textContent = `${pad2(Math.floor(left / 60))}:${pad2(left % 60)}`;
+        if (!left) { clearInterval(focusTimer); $("#h-focus").hidden = true; say("Focus block complete. Stand up, drink water, then tell me what shipped."); toast("Focus block complete"); Core.pulse("focus"); }
+      };
+      tick(); focusTimer = setInterval(tick, 1000);
+      say(`${min} minutes on the clock. Phone face down. I'll hold the notifications.`);
+    } },
+    "/stop": { desc: "Stop the focus timer", run() {
+      if (!focusEnd) return say("No timer running. Bold of you to stop something you never started.");
+      clearInterval(focusTimer); focusEnd = 0; $("#h-focus").hidden = true; say("Timer stopped. I've noted it. Silently. Mostly.");
+    } },
+    "/cosmo": { desc: "Accountability check", run() {
+      const open = Brain.all.filter(n => n.type === "task" && !n.done);
+      say(open.length ? `COSMO check: your oldest open task is "${open[open.length - 1].text}". Next hour, that one. Go.` : "COSMO check: zero open tasks. Either you're done or you haven't written anything down. Which is it, boss?");
+    } },
+    "/clear": { desc: "Clear the terminal", run() { out.innerHTML = ""; } },
+  };
+
+  function run(raw) {
+    const line = raw.trim(); if (!line) return;
+    print(line, "t-in");
+    history.unshift(line); hIdx = -1;
+    const [cmd, ...rest] = line.split(/\s+/);
+    const c = COMMANDS[cmd.toLowerCase()];
+    if (c) return c.run(rest.join(" "));
+    if (!line.startsWith("/")) { say(pick(["Commands start with a slash, boss. Try /help.", "I appreciate the chat, but I only take orders with a /. Try /help."])); return; }
+    print(`Unknown command: ${cmd}`, "t-err");
+    say("Not in my protocols. /help lists what I can do.");
+  }
+
+  $("#term-form").addEventListener("submit", e => { e.preventDefault(); run(input.value); input.value = ""; });
+  input.addEventListener("keydown", e => {
+    if (e.key === "ArrowUp" && history.length) { hIdx = Math.min(hIdx + 1, history.length - 1); input.value = history[hIdx]; e.preventDefault(); }
+    if (e.key === "ArrowDown") { hIdx = Math.max(hIdx - 1, -1); input.value = hIdx < 0 ? "" : history[hIdx]; e.preventDefault(); }
+  });
+  $("#quick-cmds").innerHTML = ["/optimize", "/sync-recall", "/launch-hydeck", "/status", "/focus 25", "/cosmo"].map(c => `<button type="button" class="btn sm" data-cmd="${c}">${c}</button>`).join("");
+  $("#quick-cmds").addEventListener("click", e => { const b = e.target.closest("[data-cmd]"); if (b) run(b.dataset.cmd); });
+
+  print("JARVIS OS v1.0 · HyDeck Core", "t-sys");
+  say("Good to see you, boss. Type /help, or tap a command below.");
+  return { run };
+})();
+
+/* ════════════════════ Header + boot ════════════════════ */
+setInterval(() => { $("#h-clock").textContent = now(); }, 1000);
+$("#h-clock").textContent = now();
+
+function showStorage(kind) {
+  const label = kind === "cloud" ? "Synced" : "Local";
+  $("#h-store").textContent = label;
+  $("#h-store-dot").className = "dot " + (kind === "cloud" ? "ok" : "cy");
+  $("#storage-note").innerHTML = kind === "cloud"
+    ? '<span class="dot ok"></span>Private to you · synced across your devices'
+    : '<span class="dot cy"></span>Saved in this browser only · open the published page signed in to sync';
+}
+
+(async function boot() {
+  let adapter = null;
+  try { adapter = await makeCloudAdapter(); } catch { adapter = null; }
+  if (!adapter) adapter = makeLocalAdapter();
+  showStorage(adapter.kind);
+  await Brain.attach(adapter);
+  Core.log(adapter.kind === "cloud" ? "Second brain linked. Private channel secured." : "Running on local memory for this browser.", "cy");
+  await Monitor.load();
+  BrainUI.render();
+})();
+</script>
