@@ -101,7 +101,10 @@ case "$1" in
     exit 0 ;;
 esac
 
-termux-wake-lock 2>/dev/null   # keep Android from killing COSMO in the background
+# Keep Android from killing COSMO in the background. Run it in the background so a
+# battery-permission prompt never holds up startup. Once Termux is "Unrestricted"
+# in Android's battery settings, there's no prompt at all.
+(termux-wake-lock > /dev/null 2>&1 &)
 export OLLAMA_HOST="127.0.0.1:11434"
 
 if ! curl -fs http://127.0.0.1:11434/api/tags > /dev/null 2>&1; then

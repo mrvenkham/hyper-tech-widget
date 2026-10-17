@@ -83,7 +83,7 @@ fi
 
 # Start at boot (needs the Termux:Boot app, opened once).
 mkdir -p "$HOME/.termux/boot"
-printf '#!/data/data/com.termux/files/usr/bin/sh\ntermux-wake-lock\n%s/bin/cosmo --no-open\n' "$PREFIX" > "$HOME/.termux/boot/start-cosmo"
+printf '#!/data/data/com.termux/files/usr/bin/sh\n%s/bin/cosmo --no-open\n' "$PREFIX" > "$HOME/.termux/boot/start-cosmo"
 chmod +x "$HOME/.termux/boot/start-cosmo"
 
 # Home-screen buttons (needs the Termux:Widget app).
