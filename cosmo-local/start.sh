@@ -8,6 +8,7 @@
 #   cosmo gumroad <token> connect Gumroad sales (cosmo gumroad off to remove)
 #   cosmo city <name> <lat> <lon>   set the weather city
 #   cosmo status          show what's running
+#   cosmo doctor          find out where any delay comes from
 #   cosmo update          download the newest COSMO files
 #   cosmo logs            show the server log
 DIR="$HOME/cosmo"
@@ -90,6 +91,27 @@ case "$1" in
     config city "$2" "$3" "$4"; restart_server; exit 0 ;;
   status)
     curl -fs "http://127.0.0.1:$PORT/api/status?refresh=1" | python -m json.tool 2>/dev/null || say "Server not running. Type: cosmo"
+    exit 0 ;;
+  doctor)
+    say "Measuring phone > laptop > GPU... (up to a minute)"
+    tmp="$DIR/doctor.json"
+    curl -fs --max-time 300 "http://127.0.0.1:$PORT/api/doctor" -o "$tmp" || { say "Server not running. Type: cosmo"; exit 1; }
+    python - "$tmp" <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1]))
+for e in d["engines"]:
+    extra = " · %s ms" % e["ms"] if "ms" in e else ""
+    print("  %-7s %s%s" % (e["name"], e["status"], extra))
+print("  Active   %s" % (d["active"] or "none"))
+if d.get("gpu"):
+    print("  GPU      %s" % d["gpu"])
+t = d.get("test")
+if t:
+    print("  Test     %s tokens/s · first word after %s s · total %s s" % (t["tokens_per_s"], t["first_word_s"], t["total_s"]))
+print()
+for v in d["verdict"]:
+    print("  > " + v)
+PY
     exit 0 ;;
   logs)
     tail -n 40 "$DIR/server.log"; exit 0 ;;

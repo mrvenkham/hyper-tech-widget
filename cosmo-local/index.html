@@ -624,6 +624,16 @@ const Term = (() => {
       print(`Phone control ${s.phone_api ? "ready" : "needs Termux:API"} · Gumroad ${s.gumroad ? "connected" : "not connected"}`, "t-sys");
       print(`Brain ${Brain.all.length} entries, ${Brain.open().length} open`, "t-sys");
     }],
+    "/doctor": ["Find where any delay comes from", async () => {
+      print("Measuring phone → laptop → GPU… (up to a minute)", "t-sys");
+      try {
+        const d = await api("/api/doctor");
+        d.engines.forEach(e => print(`${e.name.padEnd(7)} ${e.status}${e.ms != null ? " · " + e.ms + " ms" : ""}`, "t-sys"));
+        print(`Active  ${d.active || "none"}${d.gpu ? " · " + d.gpu : ""}`, "t-sys");
+        if (d.test) print(`Test    ${d.test.tokens_per_s} tokens/s · first word after ${d.test.first_word_s} s · total ${d.test.total_s} s`, "t-sys");
+        d.verdict.forEach(v => say(v));
+      } catch (e) { print("Doctor failed: " + e.message, "t-err"); }
+    }],
     "/model": ["/model [name]  show or switch model", async a => {
       const s = await api("/api/status?refresh=1").catch(() => null); if (!s?.engine) return print("No engine running.", "t-err");
       if (!a) return print(`${s.engine.name}: ${s.engine.models.join(", ")} (using ${s.engine.model})`, "t-sys");

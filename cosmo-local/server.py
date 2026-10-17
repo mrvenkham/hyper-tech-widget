@@ -752,6 +752,66 @@ def scheduler():
         time.sleep(30)
 
 
+# ───────────────────────── doctor: where is the delay? ─────────────────────────
+def doctor():
+    """Measures each link in the chain and explains the slow one in plain words."""
+    out, notes = {"engines": [], "active": None, "gpu": None, "test": None}, []
+    for e in CFG["engines"]:
+        if not e.get("url"):
+            out["engines"].append({"name": e["name"], "status": "not set"})
+            continue
+        t0 = time.time()
+        try:
+            names = [m["name"] for m in http_json(e["url"].rstrip("/") + "/api/tags", timeout=4).get("models", [])]
+            ms = round((time.time() - t0) * 1000)
+            out["engines"].append({"name": e["name"], "status": "reachable", "ms": ms, "models": names})
+            if e["name"] == "Laptop" and ms > 300:
+                notes.append(f"The laptop answers slowly over Wi-Fi ({ms} ms). Move closer to the router, or use 5 GHz Wi-Fi.")
+            if e["model"] != "auto" and e["model"] not in names:
+                notes.append(f"{e['name']} doesn't have {e['model']}. On it, run: ollama pull {e['model']}")
+        except Exception as ex:
+            out["engines"].append({"name": e["name"], "status": f"unreachable ({type(ex).__name__})"})
+            if e["name"] == "Laptop":
+                notes.append("The phone can't reach the laptop. Same Wi-Fi? Laptop awake, Ollama running, network set to Private?")
+    e = pick_engine(force=True)
+    out["active"] = f"{e['name']} · {e['model']}" if e else None
+    if not e:
+        notes.append("No AI engine is reachable at all.")
+        out["verdict"] = notes
+        return out
+    if e["name"] == "Phone" and any(x.get("url") for x in CFG["engines"] if x["name"] == "Laptop"):
+        notes.append("COSMO is thinking on the PHONE, not the laptop. That alone explains slow replies.")
+    t0 = time.time()
+    try:
+        r = http_json(e["url"] + "/api/generate", {"model": e["model"], "prompt": "Reply with one short sentence: systems check.",
+                                                   "stream": False, "keep_alive": "30m", "options": {"num_predict": 40}}, timeout=240)
+        wall = time.time() - t0
+        load = (r.get("load_duration") or 0) / 1e9
+        prompt = (r.get("prompt_eval_duration") or 0) / 1e9
+        tps = (r.get("eval_count") or 0) / max((r.get("eval_duration") or 1) / 1e9, 1e-6)
+        out["test"] = {"total_s": round(wall, 1), "load_s": round(load, 1), "first_word_s": round(load + prompt, 1), "tokens_per_s": round(tps, 1)}
+        if load > 3:
+            notes.append(f"The model had to load first ({load:.0f} s). Normal after a long break; the next replies should be faster.")
+        if tps < 15 and e["name"] == "Laptop":
+            notes.append(f"Only {tps:.0f} tokens/s on the laptop. Expected 40+. Is it plugged in? Check the GPU line below.")
+        if wall - load - prompt - (r.get("eval_duration") or 0) / 1e9 > 2:
+            notes.append("Extra time on the network between phone and laptop. Check the Wi-Fi signal.")
+    except Exception as ex:
+        notes.append(f"The test reply failed: {type(ex).__name__}.")
+    try:
+        ps = http_json(e["url"] + "/api/ps", timeout=4).get("models", [])
+        m = next((x for x in ps if x.get("name") == e["model"]), ps[0] if ps else None)
+        if m and m.get("size"):
+            pct = round(100 * (m.get("size_vram") or 0) / m["size"])
+            out["gpu"] = f"{pct}% of the model on the GPU"
+            if e["name"] == "Laptop" and pct < 95:
+                notes.append(f"Only {pct}% of the model fits on the GPU; the rest runs on the slow processor. Use a smaller model: on the laptop 'ollama pull qwen2.5:3b', then on the phone 'cosmo laptop <ip> qwen2.5:3b'.")
+    except Exception:
+        pass
+    out["verdict"] = notes or ["Everything looks healthy. If replies still feel slow, tell COSMO to keep answers short."]
+    return out
+
+
 # ───────────────────────── web server ─────────────────────────
 # Files the page needs, served as-is. Only these paths; nothing else on the phone is reachable.
 STATIC = {
@@ -816,6 +876,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(200, briefing(force=force, ai=q.get("ai") == ["1"]))
             if p == "/api/greet":
                 return self.send(200, {"text": greeting()})
+            if p == "/api/doctor":
+                return self.send(200, doctor())
             if p in STATIC:
                 with open(os.path.join(HERE, p.lstrip("/")), "rb") as f:
                     return self.send(200, f.read(), STATIC[p])
