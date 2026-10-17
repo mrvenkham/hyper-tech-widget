@@ -40,9 +40,12 @@ Start-Sleep 5
 Say "Downloading $Model (a few GB, once)..."
 ollama pull $Model
 
-$ip = (Get-NetIPAddress -AddressFamily IPv4 |
-  Where-Object { $_.InterfaceAlias -notmatch "Loopback|vEthernet|VirtualBox|VMware" -and $_.IPAddress -notlike "169.254*" } |
-  Select-Object -First 1).IPAddress
+# The address the phone needs is on the adapter that has a router (default gateway):
+# your Wi-Fi or cable. Virtual adapters (VirtualBox, Hyper-V, VPNs) have none.
+$ip = (Get-NetIPConfiguration |
+  Where-Object { $_.IPv4DefaultGateway -ne $null -and $_.NetAdapter.Status -eq "Up" } |
+  Select-Object -First 1).IPv4Address.IPAddress
+if (-not $ip) { $ip = "<your Wi-Fi IPv4 address from ipconfig>" }
 
 $netCategory = (Get-NetConnectionProfile | Select-Object -First 1).NetworkCategory
 if ($netCategory -ne "Private") {
