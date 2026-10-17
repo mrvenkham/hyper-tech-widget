@@ -1,0 +1,498 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#090a0f">
+<title>JARVIS OS Local</title>
+<!-- 100% offline: no CDN, no web fonts. Everything below ships in this one file.
+     The AI runs in Ollama on this phone at http://127.0.0.1:11434 (started by `cosmo`). -->
+<style>
+/* Layout: one column on phones (Core → COSMO terminal → Brain → Monitor); two columns from 900px. */
+:root {
+  --bg: #090a0f; --panel: rgba(12,16,24,0.7); --panel-solid: #0e121a;
+  --line: rgba(0,240,255,0.2); --line-soft: rgba(0,240,255,0.1);
+  --fg: #e4f6fb; --muted: #7f93a3; --dim: #4b5b69;
+  --cyan: #00f0ff; --purple: #bc00ff; --crimson: #ff0055; --ok: #2bffb1;
+  --font-display: "Oxanium", "Rajdhani", "Roboto Condensed", "Arial Narrow", system-ui, sans-serif;
+  --font-body: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: ui-monospace, "Roboto Mono", "Droid Sans Mono", Menlo, Consolas, monospace;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--fg); }
+body { font-family: var(--font-body); font-size: 15px; line-height: 1.45; -webkit-font-smoothing: antialiased; padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); }
+body::after { content: ""; position: fixed; inset: 0; z-index: -1; pointer-events: none;
+  background: radial-gradient(40rem 28rem at 50% 6%, rgba(0,240,255,0.10), transparent 65%),
+    radial-gradient(36rem 26rem at 100% 100%, rgba(188,0,255,0.10), transparent 60%),
+    linear-gradient(rgba(0,240,255,0.04) 1px, transparent 1px) 0 0 / 100% 28px,
+    linear-gradient(90deg, rgba(0,240,255,0.04) 1px, transparent 1px) 0 0 / 28px 100%, var(--bg); }
+.scan { position: fixed; inset: 0; z-index: 60; pointer-events: none; background: repeating-linear-gradient(to bottom, rgba(255,255,255,0.018) 0 1px, transparent 1px 3px); }
+button, input { font: inherit; color: inherit; }
+button { background: none; border: 0; cursor: pointer; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+[hidden] { display: none !important; }
+.wrap { max-width: 1200px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+
+/* Header */
+.top { position: sticky; top: 0; z-index: 30; background: rgba(9,10,15,0.85); border-bottom: 1px solid var(--line); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
+.top .wrap { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; padding-block: 10px; }
+.logo { font-family: var(--font-display); font-weight: 800; font-size: 1.15rem; letter-spacing: 0.22em; }
+.logo b { color: var(--cyan); text-shadow: 0 0 14px rgba(0,240,255,0.7); }
+.logo small { display: block; font-family: var(--font-mono); font-size: 0.62rem; letter-spacing: 0.14em; color: var(--muted); font-weight: 400; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 9px; border: 1px solid var(--line-soft); font-family: var(--font-mono); font-size: 0.68rem; color: var(--muted); white-space: nowrap; }
+.chip b { color: var(--fg); font-weight: 600; }
+.dot { width: 7px; height: 7px; border-radius: 50%; background: var(--dim); flex: none; }
+.dot.ok { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
+.dot.cy { background: var(--cyan); box-shadow: 0 0 8px var(--cyan); }
+.dot.bad { background: var(--crimson); box-shadow: 0 0 8px var(--crimson); }
+
+/* Grid */
+.grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; padding-block: 14px 24px; }
+@media (min-width: 900px) { .grid { grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); } .span2 { grid-column: 1 / -1; } }
+.panel { position: relative; min-width: 0; display: flex; flex-direction: column; background: var(--panel); border: 1px solid var(--line); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
+.panel::before { content: ""; position: absolute; inset: -1px; pointer-events: none;
+  background: linear-gradient(var(--c,var(--cyan)),var(--c,var(--cyan))) top left/12px 2px, linear-gradient(var(--c,var(--cyan)),var(--c,var(--cyan))) top left/2px 12px,
+    linear-gradient(var(--c,var(--cyan)),var(--c,var(--cyan))) top right/12px 2px, linear-gradient(var(--c,var(--cyan)),var(--c,var(--cyan))) top right/2px 12px,
+    linear-gradient(var(--c,var(--cyan)),var(--c,var(--cyan))) bottom left/12px 2px, linear-gradient(var(--c,var(--cyan)),var(--c,var(--cyan))) bottom left/2px 12px,
+    linear-gradient(var(--c,var(--cyan)),var(--c,var(--cyan))) bottom right/12px 2px, linear-gradient(var(--c,var(--cyan)),var(--c,var(--cyan))) bottom right/2px 12px;
+  background-repeat: no-repeat; }
+.panel.pp { --c: var(--purple); border-color: rgba(188,0,255,0.25); }
+.head { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; padding: 11px 14px; border-bottom: 1px solid var(--line-soft); }
+.title { margin: 0; font-family: var(--font-display); font-weight: 700; font-size: 0.9rem; letter-spacing: 0.16em; text-transform: uppercase; }
+.title i { font-style: normal; color: var(--c,var(--cyan)); font-family: var(--font-mono); font-size: 0.7rem; margin-right: 8px; }
+.tag { font-family: var(--font-mono); font-size: 0.62rem; letter-spacing: 0.1em; color: var(--dim); text-transform: uppercase; }
+.body { padding: 14px; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+
+.btn { position: relative; overflow: hidden; display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 9px 13px; border: 1px solid var(--line); background: rgba(0,240,255,0.05); font-family: var(--font-display); font-weight: 700; font-size: 0.74rem; letter-spacing: 0.12em; text-transform: uppercase; transition: border-color .15s, background-color .15s, box-shadow .15s, transform .08s; }
+.btn:hover { border-color: var(--cyan); background: rgba(0,240,255,0.12); box-shadow: 0 0 16px rgba(0,240,255,0.3); }
+.btn:active { transform: scale(0.95); }
+.btn.pri { border-color: var(--cyan); color: var(--cyan); }
+.btn.sm { padding: 5px 9px; font-size: 0.66rem; }
+.btn.on { border-color: var(--purple); color: var(--purple); box-shadow: 0 0 12px rgba(188,0,255,0.35); }
+.btn:disabled { opacity: 0.45; }
+.btn:focus-visible, .core:focus-visible, .field:focus-visible, .check:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+.field { min-width: 0; padding: 10px 12px; background: rgba(0,0,0,0.45); border: 1px solid var(--line-soft); font-size: 16px; }
+.field:focus { outline: none; border-color: var(--cyan); box-shadow: 0 0 12px rgba(0,240,255,0.2); }
+.seg { display: inline-flex; border: 1px solid var(--line-soft); }
+.seg button { padding: 5px 10px; font-family: var(--font-mono); font-size: 0.64rem; letter-spacing: 0.1em; color: var(--muted); }
+.seg button + button { border-left: 1px solid var(--line-soft); }
+.seg button[aria-pressed="true"] { color: var(--bg); background: var(--cyan); }
+
+/* Core */
+.core-row { display: grid; grid-template-columns: auto minmax(0,1fr); gap: 14px; align-items: center; }
+.core { position: relative; width: 132px; aspect-ratio: 1; border-radius: 50%; transition: transform .2s; }
+.core:active { transform: scale(0.95); }
+.core svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.ra { transform-origin: 50% 50%; animation: spin 16s linear infinite; }
+.rb { transform-origin: 50% 50%; animation: spin 10s linear infinite reverse; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.heart { transform-origin: 50% 50%; animation: beat 1.6s ease-in-out infinite; }
+.core.think .heart { animation-duration: .5s; }
+@keyframes beat { 0%,100% { transform: scale(1); } 15% { transform: scale(1.08); } 30% { transform: scale(.98); } 45% { transform: scale(1.05); } }
+.core-lbl { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; pointer-events: none; font-family: var(--font-display); font-weight: 800; font-size: 1.1rem; text-shadow: 0 0 12px var(--cyan); }
+.shock { position: absolute; inset: 0; border-radius: 50%; border: 2px solid var(--cyan); pointer-events: none; animation: shock .9s ease-out forwards; }
+@keyframes shock { from { transform: scale(.45); opacity: 1; } to { transform: scale(1.4); opacity: 0; } }
+.status { font-family: var(--font-display); font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; font-size: 0.82rem; }
+.status b { color: var(--ok); } .status b.bad { color: var(--crimson); }
+.kv { font-family: var(--font-mono); font-size: 0.7rem; color: var(--muted); line-height: 1.7; }
+.kv b { color: var(--fg); font-weight: 600; }
+.syslog { font-family: var(--font-mono); font-size: 0.7rem; color: var(--muted); max-height: 96px; overflow-y: auto; border-top: 1px dashed var(--line-soft); padding-top: 8px; line-height: 1.6; }
+.syslog time { color: var(--dim); margin-right: 6px; }
+
+/* Terminal */
+.term { font-family: var(--font-mono); font-size: 0.84rem; line-height: 1.55; background: rgba(0,0,0,0.5); }
+.out { height: 340px; overflow-y: auto; padding: 12px 14px; }
+.out div { white-space: pre-wrap; overflow-wrap: anywhere; }
+.t-in::before { content: "boss › "; color: var(--purple); }
+.t-j { color: var(--cyan); } .t-j::before { content: "COSMO › "; color: var(--dim); }
+.t-sys { color: var(--muted); } .t-ok { color: var(--ok); } .t-err { color: var(--crimson); }
+.tform { display: flex; gap: 6px; align-items: center; padding: 10px 14px; border-top: 1px solid var(--line-soft); }
+.tform .field { flex: 1; font-family: var(--font-mono); }
+.quick { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 14px 12px; }
+.mic.live { border-color: var(--crimson); color: var(--crimson); box-shadow: 0 0 14px rgba(255,0,85,0.45); }
+
+/* Brain */
+.bform { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 8px; }
+.tools { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+.index { max-height: 420px; min-height: 160px; overflow-y: auto; border-top: 1px solid var(--line-soft); }
+.entry { display: grid; grid-template-columns: 24px minmax(0,1fr) auto; gap: 10px; padding: 9px 2px; border-bottom: 1px solid var(--line-soft); }
+.entry.fresh { animation: inject .5s ease-out; }
+@keyframes inject { from { background: rgba(0,240,255,0.2); } to { background: transparent; } }
+.check { width: 20px; height: 20px; margin-top: 2px; border: 1px solid var(--cyan); display: grid; place-items: center; }
+.check[aria-checked="true"] { background: var(--cyan); }
+.check[aria-checked="true"]::after { content: ""; width: 9px; height: 5px; border: solid var(--bg); border-width: 0 0 2px 2px; transform: rotate(-45deg) translate(1px,-1px); }
+.glyph { width: 20px; text-align: center; font-family: var(--font-mono); color: var(--cyan); }
+.glyph.idea { color: var(--purple); }
+.etext { overflow-wrap: anywhere; }
+.entry.done .etext { color: var(--dim); text-decoration: line-through; }
+.emeta { font-family: var(--font-mono); font-size: 0.6rem; letter-spacing: 0.08em; color: var(--dim); text-transform: uppercase; }
+.x { width: 28px; height: 28px; color: var(--dim); border: 1px solid transparent; }
+.x:hover, .x.armed { color: var(--crimson); border-color: var(--crimson); }
+.empty { padding: 22px 6px; text-align: center; color: var(--muted); }
+
+/* Monitor */
+.metric { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 5px 10px; align-items: center; }
+.mname { font-family: var(--font-display); font-weight: 600; font-size: 0.84rem; letter-spacing: 0.05em; }
+.mval { font-family: var(--font-mono); font-size: 0.8rem; }
+.bar { grid-column: 1 / -1; height: 9px; position: relative; background: rgba(0,240,255,0.06); border: 1px solid var(--line-soft); overflow: hidden; }
+.fill { position: absolute; inset: 0 auto 0 0; width: 0; background: var(--mc); box-shadow: 0 0 10px var(--mc); transition: width 1s cubic-bezier(.2,.8,.2,1); }
+.mctl { grid-column: 1 / -1; display: flex; gap: 6px; justify-content: flex-end; }
+
+/* Offline help */
+.help { border: 1px solid var(--crimson); background: rgba(255,0,85,0.07); padding: 12px 14px; font-size: 0.9rem; }
+.help code { font-family: var(--font-mono); color: var(--cyan); background: rgba(0,0,0,0.4); padding: 1px 6px; }
+
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+</style>
+</head>
+<body>
+<div class="scan" aria-hidden="true"></div>
+
+<header class="top">
+  <div class="wrap">
+    <div class="logo">J.A.R.V.I.S <b>OS</b><small>LOCAL · RUNNING ON THIS PHONE</small></div>
+    <div class="chips">
+      <span class="chip"><span class="dot" id="c-eng-dot"></span>Engine <b id="c-eng">Checking…</b></span>
+      <span class="chip">Model <b id="c-model">—</b></span>
+      <span class="chip" id="c-focus" hidden>Focus <b id="c-focus-t">25:00</b></span>
+      <span class="chip"><b id="c-clock">--:--</b></span>
+    </div>
+  </div>
+</header>
+
+<main class="wrap grid">
+  <!-- Core -->
+  <section class="panel" aria-labelledby="h1">
+    <div class="head"><h2 class="title" id="h1"><i>M1</i>Core Engine</h2><span class="tag">Tap the heart</span></div>
+    <div class="body">
+      <div class="core-row">
+        <button type="button" class="core" id="core" aria-label="Run optimization pulse">
+          <svg viewBox="0 0 200 200" aria-hidden="true">
+            <defs><radialGradient id="gh"><stop offset="0" stop-color="#fff"/><stop offset=".35" stop-color="#00f0ff"/><stop offset="1" stop-color="#00f0ff" stop-opacity="0"/></radialGradient></defs>
+            <circle cx="100" cy="100" r="94" fill="none" stroke="#00f0ff" stroke-opacity=".2"/>
+            <g class="ra"><circle cx="100" cy="100" r="80" fill="none" stroke="#00f0ff" stroke-width="3" stroke-dasharray="70 18 22 18"/></g>
+            <g class="rb"><circle cx="100" cy="100" r="64" fill="none" stroke="#bc00ff" stroke-width="2" stroke-dasharray="10 8"/></g>
+            <g class="heart"><circle cx="100" cy="100" r="50" fill="url(#gh)" opacity=".55"/><circle cx="100" cy="100" r="38" fill="#0e121a" stroke="#00f0ff" stroke-width="2"/></g>
+          </svg>
+          <span class="core-lbl" id="core-pct">98%</span>
+        </button>
+        <div class="min-w-0">
+          <div class="status" id="status">System Status: <b>Optimized</b></div>
+          <div class="kv">Pulses <b id="k-pulses">0</b> · Brain <b id="k-brain">0</b><br>Uptime <b id="k-up">00:00</b> · Data <b>on this phone</b></div>
+        </div>
+      </div>
+      <div class="syslog" id="syslog"></div>
+    </div>
+  </section>
+
+  <!-- COSMO terminal -->
+  <section class="panel pp" aria-labelledby="h4">
+    <div class="head"><h2 class="title" id="h4"><i>M4</i>COSMO</h2><span class="tag">Talk normally · /help</span></div>
+    <div id="offline-help" class="body" hidden>
+      <div class="help">COSMO's engine isn't running. Open <b>Termux</b> and type <code>cosmo</code>, then come back here. This page retries every few seconds.</div>
+    </div>
+    <div class="term">
+      <div class="out" id="out" aria-live="polite"></div>
+      <form class="tform" id="tform" autocomplete="off">
+        <label for="tin" class="sr">Message COSMO</label>
+        <input class="field" id="tin" placeholder="Ask COSMO, or /help" spellcheck="false" autocapitalize="off">
+        <button type="button" class="btn sm mic" id="mic" aria-label="Speak to COSMO" hidden>MIC</button>
+        <button type="submit" class="btn sm pri" id="send">Send</button>
+        <button type="button" class="btn sm" id="stop" hidden>Stop</button>
+      </form>
+      <div class="quick" id="quick"></div>
+    </div>
+  </section>
+
+  <!-- Brain -->
+  <section class="panel" aria-labelledby="h2">
+    <div class="head"><h2 class="title" id="h2"><i>M2</i>Second Brain</h2><span class="tag" id="bcount">0 entries</span></div>
+    <div class="body">
+      <form class="bform" id="bform" autocomplete="off">
+        <label for="bin" class="sr">Note or task</label>
+        <input class="field" id="bin" maxlength="280" placeholder="Dump a task, note or idea…">
+        <button class="btn pri" type="submit">Input to Brain</button>
+      </form>
+      <div class="tools">
+        <div class="seg" id="tseg" role="group" aria-label="Type">
+          <button type="button" data-v="task" aria-pressed="true">TASK</button><button type="button" data-v="note" aria-pressed="false">NOTE</button><button type="button" data-v="idea" aria-pressed="false">IDEA</button>
+        </div>
+        <div class="seg" id="fseg" role="group" aria-label="Show">
+          <button type="button" data-v="all" aria-pressed="true">ALL</button><button type="button" data-v="open" aria-pressed="false">OPEN</button><button type="button" data-v="done" aria-pressed="false">DONE</button>
+        </div>
+      </div>
+      <div class="index" id="index"></div>
+    </div>
+  </section>
+
+  <!-- Monitor -->
+  <section class="panel" aria-labelledby="h3">
+    <div class="head"><h2 class="title" id="h3"><i>M3</i>HyDeck Monitor</h2><span class="tag">Tap to adjust</span></div>
+    <div class="body" id="monitor"></div>
+  </section>
+</main>
+
+<script>
+/* ════════════════════════════════════════════════════════════════════
+   JARVIS OS Local — everything stays on the phone.
+     • AI:     Ollama at http://127.0.0.1:11434  (POST /api/chat, streamed)
+     • Data:   this browser's localStorage on 127.0.0.1:8080
+     • Tasks:  COSMO writes lines starting "TASK:"; the page turns them into
+               Second Brain tasks (works with any small model, no tool calling needed)
+   ════════════════════════════════════════════════════════════════════ */
+const OLLAMA = "http://127.0.0.1:11434";
+const $ = s => document.querySelector(s);
+const pad2 = n => String(n).padStart(2, "0");
+const now = () => { const d = new Date(); return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`; };
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const store = {
+  get(k, d) { try { const v = JSON.parse(localStorage.getItem(k)); return v ?? d; } catch { return d; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
+};
+const BOOT = Date.now();
+
+/* ---------- Core ---------- */
+const Core = (() => {
+  let pulses = 0, eff = 98;
+  const core = $("#core");
+  function log(t) {
+    const d = document.createElement("div");
+    d.innerHTML = `<time>${now()}</time>`; d.append(t);
+    $("#syslog").prepend(d);
+    while ($("#syslog").children.length > 25) $("#syslog").lastChild.remove();
+  }
+  function status(ok) { $("#status").innerHTML = ok ? "System Status: <b>Optimized</b>" : 'System Status: <b class="bad">Needs a pulse</b>'; }
+  function pulse(src) {
+    pulses++; eff = eff + (100 - eff) * 0.6;
+    $("#core-pct").textContent = Math.round(eff) + "%"; $("#k-pulses").textContent = pulses;
+    const s = document.createElement("span"); s.className = "shock"; core.append(s); setTimeout(() => s.remove(), 950);
+    try { navigator.vibrate && navigator.vibrate(18); } catch {}
+    status(true); log(`Pulse #${pulses} (${src}). System Status: Optimized.`);
+  }
+  core.addEventListener("click", () => pulse("manual"));
+  setInterval(() => {
+    eff = Math.max(61, eff - 0.35); $("#core-pct").textContent = Math.round(eff) + "%";
+    if (eff < 75) status(false);
+    const s = Math.floor((Date.now() - BOOT) / 1000);
+    $("#k-up").textContent = `${pad2(Math.floor(s / 60))}:${pad2(s % 60)}`;
+    $("#c-clock").textContent = now();
+  }, 1000);
+  $("#c-clock").textContent = now();
+  log("JARVIS OS Local online. No cloud. No excuses.");
+  return { pulse, log, thinking: on => core.classList.toggle("think", on) };
+})();
+
+/* ---------- Brain (localStorage) ---------- */
+const Brain = (() => {
+  let list = store.get("cosmo.brain", []), type = "task", filter = "all", armed = null, fresh = new Set();
+  const save = () => store.set("cosmo.brain", list);
+  function add(text, t = type) {
+    text = String(text).trim().slice(0, 280); if (!text) return;
+    const n = { id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), text, type: t, done: false, at: Date.now() };
+    list.unshift(n); fresh.add(n.id); save(); render(); return n;
+  }
+  function render() {
+    const view = list.filter(n => filter === "all" || (filter === "done" ? n.done : !n.done));
+    const open = list.filter(n => n.type === "task" && !n.done).length;
+    $("#bcount").textContent = `${list.length} entries · ${open} open`;
+    $("#k-brain").textContent = list.length;
+    const idx = $("#index"); idx.innerHTML = "";
+    if (!view.length) { idx.innerHTML = `<div class="empty">${list.length ? "Nothing here with this filter." : "Brain is empty. Add a task above, or ask COSMO to plan something."}</div>`; return; }
+    for (const n of view) {
+      const row = document.createElement("div");
+      row.className = "entry" + (n.done ? " done" : "") + (fresh.has(n.id) ? " fresh" : "");
+      row.dataset.id = n.id;
+      row.innerHTML = (n.type === "task" ? `<button type="button" class="check" role="checkbox" aria-checked="${n.done}" aria-label="Done" data-a="t"></button>` : `<span class="glyph ${n.type}">${n.type === "idea" ? "◆" : "▸"}</span>`)
+        + `<div><div class="etext"></div><div class="emeta">${n.type}</div></div><button type="button" class="x ${armed === n.id ? "armed" : ""}" data-a="d" aria-label="${armed === n.id ? "Tap again to delete" : "Delete"}">✕</button>`;
+      row.querySelector(".etext").textContent = n.text;
+      idx.append(row);
+    }
+    fresh.clear();
+  }
+  $("#index").addEventListener("click", e => {
+    const b = e.target.closest("[data-a]"); if (!b) return;
+    const id = b.closest("[data-id]").dataset.id;
+    if (b.dataset.a === "t") { const n = list.find(x => x.id === id); n.done = !n.done; save(); render(); }
+    else if (armed === id) { armed = null; list = list.filter(x => x.id !== id); save(); render(); }
+    else { armed = id; render(); setTimeout(() => { if (armed === id) { armed = null; render(); } }, 3000); }
+  });
+  $("#bform").addEventListener("submit", e => { e.preventDefault(); const n = add($("#bin").value); if (n) { $("#bin").value = ""; Core.log(`Brain ingested a ${n.type}.`); } });
+  function seg(sel, fn) { $(sel).addEventListener("click", e => { const b = e.target.closest("[data-v]"); if (!b) return; $(sel).querySelectorAll("button").forEach(x => x.setAttribute("aria-pressed", x === b)); fn(b.dataset.v); }); }
+  seg("#tseg", v => type = v); seg("#fseg", v => { filter = v; render(); });
+  render();
+  return { add, open: () => list.filter(n => n.type === "task" && !n.done), get all() { return list; } };
+})();
+
+/* ---------- Monitor (localStorage) ---------- */
+const Monitor = (() => {
+  const DEFS = [
+    { k: "layout", name: "Code Layout", max: 100, step: 5, u: "%", c: "var(--cyan)" },
+    { k: "recall", name: "Recall Docs", max: 20, step: 1, u: "docs", c: "var(--purple)" },
+    { k: "packs", name: "Theme Packs Shipped", max: 4, step: 1, u: "packs", c: "var(--ok)" },
+    { k: "devlog", name: "Devlog Video", max: 100, step: 10, u: "%", c: "var(--crimson)" },
+  ];
+  const v = store.get("cosmo.monitor", { layout: 85, recall: 12, packs: 2, devlog: 20 });
+  $("#monitor").innerHTML = DEFS.map(d => `<div class="metric" style="--mc:${d.c}"><div class="mname">${d.name}</div><div class="mval" id="mv-${d.k}"></div>
+    <div class="bar"><div class="fill" id="mf-${d.k}"></div></div>
+    <div class="mctl"><button type="button" class="btn sm" data-k="${d.k}" data-d="-1">− ${d.step}</button><button type="button" class="btn sm" data-k="${d.k}" data-d="1">+ ${d.step}</button></div></div>`).join("");
+  function render() { for (const d of DEFS) { $(`#mv-${d.k}`).textContent = d.u === "%" ? `${v[d.k]}%` : `${v[d.k]} / ${d.max}`; $(`#mf-${d.k}`).style.width = v[d.k] / d.max * 100 + "%"; } }
+  $("#monitor").addEventListener("click", e => { const b = e.target.closest("[data-k]"); if (!b) return; const d = DEFS.find(x => x.k === b.dataset.k); v[d.k] = clamp(v[d.k] + (+b.dataset.d) * d.step, 0, d.max); store.set("cosmo.monitor", v); render(); });
+  requestAnimationFrame(() => requestAnimationFrame(render));
+  return { v };
+})();
+
+/* ---------- Engine link (Ollama) ---------- */
+const Engine = (() => {
+  let model = store.get("cosmo.model", null), models = [], up = false;
+  function chip(state, label) { $("#c-eng-dot").className = "dot " + state; $("#c-eng").textContent = label; }
+  async function check() {
+    try {
+      const r = await fetch(OLLAMA + "/api/tags", { cache: "no-store" });
+      const j = await r.json();
+      models = (j.models || []).map(m => m.name);
+      if (!models.length) { up = false; chip("bad", "No model"); Term.print("Engine is running but has no model. In Termux: ollama pull llama3.2:3b", "t-err"); return; }
+      if (!model || !models.includes(model)) { model = models[0]; store.set("cosmo.model", model); }
+      if (!up) Core.log(`Engine online · ${model}`);
+      up = true; chip("ok", "Online"); $("#c-model").textContent = model; $("#offline-help").hidden = true;
+    } catch {
+      if (up) Core.log("Engine went offline.");
+      up = false; chip("bad", "Offline"); $("#offline-help").hidden = false;
+    }
+  }
+  check(); setInterval(check, 8000);
+  return { get up() { return up; }, get model() { return model; }, get models() { return models; }, setModel(m) { model = m; store.set("cosmo.model", m); $("#c-model").textContent = m; }, check };
+})();
+
+/* ---------- COSMO ---------- */
+const Cosmo = (() => {
+  let history = [], ctl = null, voice = store.get("cosmo.voice", false);
+  function system() {
+    const open = Brain.open().slice(0, 12), m = Monitor.v;
+    return `You are COSMO, a sharp, direct, slightly witty personal coach, like Jarvis, running fully offline on the user's phone.
+The user is a 16-year-old developer and creator in Kedah, Malaysia, who builds HyDeck, an Android widget app sold on Gumroad with theme packs (MIDAS, GYM). Call them "boss". Casual Malaysian words like "bro" and "steady" are fine sometimes.
+Rules:
+- Keep replies short: under 100 words, plain text, no markdown.
+- No generic motivational quotes. Give concrete actions. Call out slacking directly but kindly.
+- When they state an open-ended goal, give exactly 3 steps they can finish within the hour. Write each step on its own line starting with "TASK: ".
+- Sleep, school and health are part of performance. Never push all-nighters.
+- Prefer actions that get HyDeck in front of buyers over building new prototypes.
+- End with a short status line in square brackets.
+Current state (${new Date().toLocaleString("en-GB", { weekday: "long", hour: "2-digit", minute: "2-digit" })}):
+Open tasks: ${open.length ? open.map(n => `"${n.text}"`).join("; ") : "none"}
+Monitor: Code Layout ${m.layout}%, Recall docs ${m.recall}/20, Theme packs ${m.packs}/4, Devlog ${m.devlog}%.`;
+  }
+  function speak(t) {
+    if (!voice || !("speechSynthesis" in window)) return;
+    try { speechSynthesis.cancel(); const u = new SpeechSynthesisUtterance(t.replace(/TASK:\s*/g, "").replace(/\[[^\]]*\]\s*$/, "")); u.rate = 1.05; u.pitch = 0.9; speechSynthesis.speak(u); } catch {}
+  }
+  async function ask(text) {
+    if (ctl) return Term.print("Still answering. Tap Stop first.", "t-err");
+    if (!Engine.up) { await Engine.check(); if (!Engine.up) return Term.print("Engine offline. Open Termux and type: cosmo", "t-err"); }
+    history.push({ role: "user", content: text }); history = history.slice(-10);
+    const line = Term.print("Thinking…", "t-j");
+    ctl = new AbortController(); Core.thinking(true); $("#send").hidden = true; $("#stop").hidden = false;
+    let full = "";
+    try {
+      const r = await fetch(OLLAMA + "/api/chat", {
+        method: "POST", signal: ctl.signal, headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ model: Engine.model, stream: true, messages: [{ role: "system", content: system() }, ...history], options: { temperature: 0.7, num_ctx: 4096 } }),
+      });
+      if (!r.ok) throw new Error(`Engine answered ${r.status}`);
+      const reader = r.body.getReader(), dec = new TextDecoder(); let buf = "";
+      while (true) {
+        const { value, done } = await reader.read(); if (done) break;
+        buf += dec.decode(value, { stream: true });
+        const lines = buf.split("\n"); buf = lines.pop();
+        for (const l of lines) {
+          if (!l.trim()) continue;
+          const j = JSON.parse(l);
+          if (j.error) throw new Error(j.error);
+          if (j.message?.content) { full += j.message.content; line.textContent = full; $("#out").scrollTop = 1e9; }
+        }
+      }
+      history.push({ role: "assistant", content: full });
+      const tasks = [...full.matchAll(/^\s*(?:[-*\d.)\s]*)TASK:\s*(.+)$/gim)].map(m => m[1].trim()).slice(0, 5);
+      // The brain lists newest first, so add in reverse to keep step 1 on top.
+      [...tasks].reverse().forEach(t => Brain.add(t, "task"));
+      tasks.forEach(t => Term.print(`+ task added: ${t}`, "t-ok"));
+      Core.log("COSMO responded."); speak(full);
+    } catch (e) {
+      history.pop();
+      if (e.name === "AbortError") line.textContent = (full ? full + " …" : "Stopped.");
+      else { if (!full) line.remove(); Term.print(`Lost the engine mid-thought (${e.message}). Check Termux is still running.`, "t-err"); Engine.check(); }
+    } finally { ctl = null; Core.thinking(false); $("#send").hidden = false; $("#stop").hidden = true; }
+  }
+  return {
+    ask, stop() { ctl?.abort(); try { speechSynthesis.cancel(); } catch {} },
+    forget() { history = []; },
+    toggleVoice() { voice = !voice; store.set("cosmo.voice", voice); return voice; },
+  };
+})();
+
+/* ---------- Terminal ---------- */
+const Term = (() => {
+  const out = $("#out"), input = $("#tin"); let focusT = null, focusEnd = 0;
+  function print(t, cls = "t-j") { const d = document.createElement("div"); d.className = cls; d.textContent = t; out.append(d); out.scrollTop = out.scrollHeight; return d; }
+  const say = t => print(t, "t-j");
+  const C = {
+    "/help": ["List commands", () => Object.entries(C).forEach(([k, [d]]) => print(`${k.padEnd(13)} ${d}`, "t-sys"))],
+    "/optimize": ["Pulse the core", () => { Core.pulse("terminal"); say("Core optimized. Running on your own silicon now, boss."); }],
+    "/status": ["System report", () => {
+      print(`Engine ..... ${Engine.up ? "online" : "offline"} · ${Engine.model || "no model"}`, "t-sys");
+      print(`Brain ...... ${Brain.all.length} entries, ${Brain.open().length} open tasks`, "t-sys");
+      print(`Monitor .... layout ${Monitor.v.layout}% · recall ${Monitor.v.recall}/20 · packs ${Monitor.v.packs}/4 · devlog ${Monitor.v.devlog}%`, "t-sys");
+    }],
+    "/model": ["/model [name]  show or switch model", a => {
+      if (!a) { print(`Installed: ${Engine.models.join(", ") || "none"}`, "t-sys"); return print(`Using: ${Engine.model}`, "t-sys"); }
+      if (!Engine.models.includes(a)) return print(`Not installed. In Termux: ollama pull ${a}`, "t-err");
+      Engine.setModel(a); say(`Switched to ${a}.`);
+    }],
+    "/brain": ["/brain <text>  add a task", a => { if (!a) return print("Usage: /brain post HyDeck clip", "t-err"); Brain.add(a, "task"); say("Stored."); }],
+    "/focus": ["/focus [min]  focus timer", a => {
+      const min = clamp(parseInt(a) || 25, 1, 120); clearInterval(focusT); focusEnd = Date.now() + min * 60000; $("#c-focus").hidden = false;
+      const tick = () => { const l = Math.max(0, Math.round((focusEnd - Date.now()) / 1000)); $("#c-focus-t").textContent = `${pad2(Math.floor(l / 60))}:${pad2(l % 60)}`; if (!l) { clearInterval(focusT); $("#c-focus").hidden = true; say("Focus block done. Water, stretch, then tell me what shipped."); Core.pulse("focus"); } };
+      tick(); focusT = setInterval(tick, 1000); say(`${min} minutes. Phone face down. Go.`);
+    }],
+    "/voice": ["Read replies aloud", () => say(Cosmo.toggleVoice() ? "Voice on." : "Voice off.")],
+    "/forget": ["Clear chat memory", () => { Cosmo.forget(); say("Chat memory cleared. Brain untouched."); }],
+    "/clear": ["Clear the terminal", () => { out.innerHTML = ""; }],
+  };
+  function run(raw) {
+    const line = raw.trim(); if (!line) return;
+    print(line, "t-in");
+    const [cmd, ...rest] = line.split(/\s+/);
+    const c = C[cmd.toLowerCase()];
+    if (c) return c[1](rest.join(" "));
+    if (line.startsWith("/")) return print(`Unknown command ${cmd}. Try /help.`, "t-err");
+    Cosmo.ask(line);
+  }
+  $("#tform").addEventListener("submit", e => { e.preventDefault(); run(input.value); input.value = ""; });
+  $("#stop").addEventListener("click", () => Cosmo.stop());
+  $("#quick").innerHTML = ["/status", "/focus 25", "/voice", "/model", "/optimize"].map(c => `<button type="button" class="btn sm" data-c="${c}">${c}</button>`).join("");
+  $("#quick").addEventListener("click", e => { const b = e.target.closest("[data-c]"); if (b) run(b.dataset.c); });
+
+  // Voice input. Chrome's speech recognition sends audio to Google, so it needs
+  // internet even though COSMO's thinking stays on the phone. Hidden if unsupported.
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (SR) {
+    const mic = $("#mic"); mic.hidden = false; let rec = null;
+    mic.addEventListener("click", () => {
+      if (rec) { rec.stop(); return; }
+      rec = new SR(); rec.lang = "en-US"; rec.interimResults = true;
+      mic.classList.add("live");
+      rec.onresult = e => { input.value = [...e.results].map(r => r[0].transcript).join(""); };
+      rec.onend = () => { mic.classList.remove("live"); rec = null; if (input.value.trim()) { run(input.value); input.value = ""; } };
+      rec.onerror = e => print(e.error === "not-allowed" ? "Mic blocked. Allow microphone for 127.0.0.1 in Chrome settings." : e.error === "network" ? "Voice input needs internet (it uses Google's speech service). Type instead." : `Mic error: ${e.error}`, "t-err");
+      rec.start();
+    });
+  }
+
+  print("JARVIS OS Local · COSMO runs on this phone", "t-sys");
+  say("Online, boss. Talk to me normally. Everything stays on this device.");
+  return { print };
+})();
+</script>
+</body>
+</html>
