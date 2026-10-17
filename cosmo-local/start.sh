@@ -114,6 +114,10 @@ say "Starting the COSMO server…"
 start_server || exit 1
 
 if [ "$1" != "--no-open" ]; then
-  say "COSMO is online → http://127.0.0.1:$PORT"
-  termux-open-url "http://127.0.0.1:$PORT" 2>/dev/null || say "Open http://127.0.0.1:$PORT in Chrome."
+  say "COSMO is online."
+  # Open the COSMO Android app if it's installed; otherwise JARVIS in the browser.
+  out=$(am start -n com.hypertechwidget.cosmo/.MainActivity 2>&1)
+  if [ $? -ne 0 ] || echo "$out" | grep -qiE "error|does not exist|unable"; then
+    termux-open-url "http://127.0.0.1:$PORT" 2>/dev/null || say "Open http://127.0.0.1:$PORT in Chrome."
+  fi
 fi
