@@ -254,7 +254,7 @@ button { background: none; border: 0; cursor: pointer; }
 
   <!-- Daily briefing -->
   <section class="panel pp" id="briefing" aria-labelledby="h5">
-    <div class="head"><h2 class="title" id="h5"><i>M5</i>Daily Briefing</h2><button type="button" class="btn sm" id="b-refresh">Refresh</button></div>
+    <div class="head"><h2 class="title" id="h5"><i>M5</i>Daily Briefing</h2><button type="button" class="btn sm pri" id="b-refresh">Write today's plan</button></div>
     <div class="body">
       <div class="wx" id="wx">Weather loading…</div>
       <div class="pulse" id="pulse"></div>
@@ -493,16 +493,19 @@ const Briefing = (() => {
     if (gh.ok) bits.push(`<span class="pill ${gh.days_since >= 3 ? "bad" : "ok"}">GitHub · ${gh.days_since === 0 ? "pushed today" : gh.days_since == null ? "no pushes" : gh.days_since + "d since push"}</span>`);
     $("#pulse").innerHTML = bits.join("");
   }
-  async function load(force) {
+  // Opening the page only loads live data (instant). COSMO writes the plan when you
+  // tap the button, or by itself at 06:45, because that's slow on a phone model.
+  async function load(write) {
     $("#b-refresh").disabled = true;
-    $("#brief-text").textContent = force ? "COSMO is reading the news and planning your day… (on a phone model this can take a minute)" : $("#brief-text").textContent;
+    if (write) $("#brief-text").textContent = "COSMO is reading the news and planning your day… (about a minute on the phone model, seconds on the laptop)";
     try {
-      const b = await api("/api/briefing" + (force ? "?refresh=1" : ""));
+      const b = await api("/api/briefing" + (write ? "?ai=1&refresh=1" : ""));
       const w = b.weather;
       $("#wx").innerHTML = w?.ok ? `<b>${w.temp}°C</b> ${w.now} · ${w.city} · high ${w.high}° · rain ${w.rain_chance}% <span class="tag">Open-Meteo</span>` : `Weather unavailable for ${w?.city || "your city"}.`;
       renderPulse(b.pulse);
-      $("#brief-text").textContent = b.text || b.error || "No AI engine is running, so there's no written plan. The news and weather above are live.";
-      $("#brief-meta").textContent = `Written ${b.generated ? ago(b.generated * 1000) : ""}${b.engine ? " · " + b.engine : ""}${b.news_errors?.length ? " · some feeds offline" : ""}`;
+      $("#brief-text").textContent = b.text || b.error || "No plan written yet today. Tap Write today's plan, or wait for the 06:45 briefing.";
+      $("#b-refresh").textContent = b.text ? "Rewrite plan" : "Write today's plan";
+      $("#brief-meta").textContent = b.text ? `Written ${b.generated ? ago(b.generated * 1000) : ""}${b.engine ? " · " + b.engine : ""}` : (b.news_errors?.length ? "Some feeds offline" : "");
     } catch (e) { $("#brief-text").textContent = "Couldn't load the briefing: " + e.message; }
     $("#b-refresh").disabled = false;
   }
@@ -596,7 +599,7 @@ const Term = (() => {
   const C = {
     "/help": ["List commands", () => Object.entries(C).forEach(([k, [d]]) => print(`${k.padEnd(13)} ${d}`, "t-sys"))],
     "/world": ["/world <country>  spin the globe there", a => { if (!a) return print("Usage: /world Japan", "t-err"); if (Globe.select(a)) { say(`Spinning to ${a}.`); location.hash = "world"; } else print(`No country called "${a}".`, "t-err"); }],
-    "/brief": ["Today's briefing, fresh", () => { Briefing.load(true); say("Writing today's briefing. Check the panel above."); location.hash = "briefing"; }],
+    "/brief": ["Write today's plan", () => { Briefing.load(true); say("Writing today's plan. Check the Daily Briefing panel."); location.hash = "briefing"; }],
     "/news": ["Refresh headlines", () => { News.load(true); say("Pulling fresh headlines."); }],
     "/do": ["/do <action>  phone action", async a => { if (!a) return print("Try: /do torch on · /do battery · /do volume 8 · /do open tiktok", "t-sys"); try { print((await api("/api/act", { cmd: a })).result, "t-sys"); } catch (e) { print(e.message, "t-err"); } }],
     "/status": ["System report", async () => {
@@ -665,7 +668,7 @@ const Term = (() => {
    News per country comes from /api/country (Google News headlines, outlet named). */
 const Globe = (() => {
   const cv = $("#globe"), ctx = cv.getContext("2d"), hud = $("#globe-hud");
-  const TW = 2048, TH = 1024, DEG = Math.PI / 180;
+  const TW = 1024, TH = 512, DEG = Math.PI / 180;
   let C = [], texDisp = null, texId = null, sel = -1;
   let lam = 101.7, phi = 8;          // view centre: start over Malaysia
   let D = 0, R = 0, pix, rowOff, lonT, shade, img, buf, tableFor = null;
@@ -723,7 +726,7 @@ const Globe = (() => {
 
   function size() {
     const css = cv.clientWidth || 300;
-    const want = Math.min(560, Math.round(css * Math.min(window.devicePixelRatio || 1, 2)));
+    const want = Math.min(380, Math.round(css * Math.min(window.devicePixelRatio || 1, 1.5))); // pixels drawn per frame are the CPU cost
     if (want !== D) { D = cv.width = cv.height = want; R = D / 2 - 6; img = ctx.createImageData(D, D); buf = new Uint32Array(img.data.buffer); tableFor = null; dirty = true; }
   }
 
@@ -760,16 +763,19 @@ const Globe = (() => {
     dirty = false;
   }
 
-  let last = performance.now();
+  // Spin slowly for 40 s after you last touch it, then rest. Never spin while COSMO
+  // is thinking, so the AI gets the CPU. Draw at most 30 frames a second.
+  let lastDraw = 0, touchedAt = performance.now();
+  const busy = () => document.querySelector("#core").classList.contains("think");
   function loop(now) {
-    const dt = Math.min(0.1, (now - last) / 1000); last = now;
+    requestAnimationFrame(loop);
+    if (now - lastDraw < 33) return;
     if (anim) {
       const k = Math.min(1, (now - anim.t0) / 900), e = 1 - Math.pow(1 - k, 3);
       lam = anim.l0 + anim.dl * e; phi = anim.p0 + (anim.p1 - anim.p0) * e; dirty = true;
       if (k >= 1) anim = null;
-    } else if (spinning && now - idleAt > 6000) { lam += 5 * dt; dirty = true; }
-    if (dirty && visible && !document.hidden) render();
-    requestAnimationFrame(loop);
+    } else if (spinning && now - idleAt > 6000 && now - touchedAt < 40000 && !busy()) { lam += 5 * (now - lastDraw) / 1000; dirty = true; }
+    if (dirty && visible && !document.hidden) { render(); lastDraw = now; }
   }
 
   // Screen point → country index (or -1 for ocean / space)
@@ -794,7 +800,7 @@ const Globe = (() => {
 
   function select(i, fly) {
     if (i < 0 || i === sel) return;
-    sel = i; buildTextures(); idleAt = performance.now();
+    sel = i; buildTextures(); idleAt = touchedAt = performance.now();
     const c = C[i];
     if (fly) { const [lo, la] = centroid(c); let dl = ((lo - lam + 540) % 360) - 180; anim = { t0: performance.now(), l0: lam, dl, p0: phi, p1: Math.max(-60, Math.min(60, la)) }; }
     hud.textContent = c.n;
@@ -803,7 +809,7 @@ const Globe = (() => {
 
   // Drag: sideways spins (vertical swipes still scroll the page on touch); mouse can also tilt.
   let down = null;
-  cv.addEventListener("pointerdown", e => { down = { x: e.clientX, y: e.clientY, l: lam, p: phi, moved: false, mouse: e.pointerType === "mouse" }; cv.setPointerCapture(e.pointerId); anim = null; idleAt = performance.now(); });
+  cv.addEventListener("pointerdown", e => { touchedAt = performance.now(); down = { x: e.clientX, y: e.clientY, l: lam, p: phi, moved: false, mouse: e.pointerType === "mouse" }; cv.setPointerCapture(e.pointerId); anim = null; idleAt = performance.now(); });
   cv.addEventListener("pointermove", e => {
     if (!down) return;
     const dx = e.clientX - down.x, dy = e.clientY - down.y, k = 90 / (cv.clientWidth / 2);

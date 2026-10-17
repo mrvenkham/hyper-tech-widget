@@ -16,6 +16,7 @@ Settings live in config.json next to this file (created on first run).
 """
 import datetime as dt
 import html
+import socket
 import json
 import os
 import re
@@ -38,6 +39,18 @@ CONFIG_PATH = os.path.join(HERE, "config.json")
 TZ = dt.timezone(dt.timedelta(hours=8))  # Malaysia time, no daylight saving
 UA = "Mozilla/5.0 (Linux; Android) COSMO/1.0"
 os.makedirs(DATA, exist_ok=True)
+
+# Mobile networks often advertise IPv6 that doesn't actually work, so every
+# request waits for an IPv6 timeout before trying IPv4. Try IPv4 first.
+_getaddrinfo = socket.getaddrinfo
+
+
+def _ipv4_first(*args, **kw):
+    res = _getaddrinfo(*args, **kw)
+    return sorted(res, key=lambda r: r[0] != socket.AF_INET)
+
+
+socket.getaddrinfo = _ipv4_first
 
 DEFAULT_CONFIG = {
     "port": 8080,
@@ -140,16 +153,38 @@ def http_json(url, body=None, timeout=8):
 
 
 class Cache:
-    """Remembers a value for `ttl` seconds so the internet isn't hit on every request."""
+    """Remembers a value for `ttl` seconds so the internet isn't hit on every request.
+    `peek` never makes the page wait once there is any value: it returns what it has
+    (even if old) and refreshes in the background. Values can be kept on disk."""
 
-    def __init__(self, ttl):
-        self.ttl, self.t, self.v, self.lock = ttl, 0, None, threading.Lock()
+    def __init__(self, ttl, disk=None):
+        self.ttl, self.t, self.v, self.lock, self.disk, self.busy = ttl, 0, None, threading.Lock(), disk, False
+        if disk:
+            saved = load(disk, None)
+            if saved:
+                self.v, self.t = saved.get("v"), saved.get("t", 0)
 
     def get(self, fn, force=False):
         with self.lock:
             if force or self.v is None or time.time() - self.t > self.ttl:
                 self.v, self.t = fn(), time.time()
+                if self.disk:
+                    save(self.disk, {"v": self.v, "t": self.t})
             return self.v
+
+    def peek(self, fn):
+        if self.v is None:
+            return self.get(fn)
+        if time.time() - self.t > self.ttl and not self.busy:
+            self.busy = True
+
+            def refresh():
+                try:
+                    self.get(fn, force=True)
+                finally:
+                    self.busy = False
+            threading.Thread(target=refresh, daemon=True).start()
+        return self.v
 
 
 # ───────────────────────── AI engine ─────────────────────────
@@ -244,12 +279,14 @@ def parse_feed(raw, source, cat):
 def fetch_news():
     def one(f):
         try:
-            return parse_feed(http_get(f["url"], timeout=8), f["source"], f["cat"]), None
+            return parse_feed(http_get(f["url"], timeout=6), f["source"], f["cat"]), None
         except Exception as ex:
             return [], f"{f['source']}: {type(ex).__name__}"
 
-    with ThreadPoolExecutor(max_workers=6) as pool:
+    t0 = time.time()
+    with ThreadPoolExecutor(max_workers=max(1, len(CFG["feeds"]))) as pool:
         results = list(pool.map(one, CFG["feeds"]))
+    log(f"news: {sum(len(r) for r, _ in results)} headlines in {time.time() - t0:.1f}s", *[e for _, e in results if e])
     items = [i for r, _ in results for i in r]
     cutoff = time.time() - 3 * 86400  # nothing older than 3 days
     items = [i for i in items if not i["ts"] or i["ts"] > cutoff]
@@ -314,15 +351,15 @@ def fetch_pulse():
     return out
 
 
-NEWS, WEATHER, PULSE = Cache(20 * 60), Cache(30 * 60), Cache(15 * 60)
+NEWS, WEATHER, PULSE = Cache(20 * 60, disk="news_cache"), Cache(30 * 60, disk="weather_cache"), Cache(15 * 60)
 
 
 def news_cached_only():
     """Headlines without waiting on the network; refreshes in the background if stale."""
-    v = NEWS.v
-    if v is None or time.time() - NEWS.t > NEWS.ttl:
+    if NEWS.v is None:
         threading.Thread(target=NEWS.get, args=(fetch_news,), daemon=True).start()
-    return (v or {}).get("items", [])
+        return []
+    return NEWS.peek(fetch_news).get("items", [])
 
 
 # ───────────────────────── country news (globe) ─────────────────────────
@@ -343,7 +380,7 @@ def fetch_country(name, force=False):
     items, err = [], None
     try:
         q = urllib.parse.urlencode({"q": f'"{name}" when:2d', "hl": "en-US", "gl": "US", "ceid": "US:en"})
-        root = ET.fromstring(http_get("https://news.google.com/rss/search?" + q, timeout=8))
+        root = ET.fromstring(http_get("https://news.google.com/rss/search?" + q, timeout=6))
         for n in root.findall(".//item")[:12]:
             src_el = n.find("source")
             source = (src_el.text or "").strip() if src_el is not None else "Unknown outlet"
@@ -590,9 +627,18 @@ def build_messages(message):
 _brief_lock = threading.Lock()
 
 
-def briefing(force=False):
+def briefing(force=False, ai=False):
+    """Without `ai`, returns at once: today's saved plan (if written) plus live weather,
+    sales and headlines. With `ai`, the engine writes the plan, which is slow on a phone."""
     today = now().date().isoformat()
     cached = load("briefing", {})
+    if not ai:
+        news = NEWS.peek(fetch_news)
+        out = {"date": today, "weather": WEATHER.peek(fetch_weather), "pulse": PULSE.peek(fetch_pulse),
+               "headlines": pick_headlines(news["items"]), "news_errors": news["errors"], "text": "", "engine": None}
+        if cached.get("date") == today and cached.get("text"):
+            out.update(text=cached["text"], engine=cached.get("engine"), generated=cached.get("generated"))
+        return out
     if cached.get("date") == today and cached.get("text") and not force:
         return cached
     with _brief_lock:
@@ -689,7 +735,7 @@ def scheduler():
                 if quiet(t):
                     continue
                 if job == "briefing":
-                    b = briefing(force=True)
+                    b = briefing(force=True, ai=True)
                     first = next((l for l in b.get("text", "").splitlines() if re.match(r"\s*1[.)]", l)), "")
                     notify("COSMO · Morning briefing", (first.strip() or "Your news, weather and plan for today are ready.") + " Tap to open.", "/#briefing")
                 elif job == "nudge":
@@ -750,13 +796,13 @@ class Handler(BaseHTTPRequestHandler):
             if p == "/api/monitor":
                 return self.send(200, monitor())
             if p == "/api/news":
-                return self.send(200, NEWS.get(fetch_news, force=force))
+                return self.send(200, NEWS.get(fetch_news, force=True) if force else NEWS.peek(fetch_news))
             if p == "/api/weather":
-                return self.send(200, WEATHER.get(fetch_weather, force=force))
+                return self.send(200, WEATHER.get(fetch_weather, force=True) if force else WEATHER.peek(fetch_weather))
             if p == "/api/pulse":
-                return self.send(200, PULSE.get(fetch_pulse, force=force))
+                return self.send(200, PULSE.get(fetch_pulse, force=True) if force else PULSE.peek(fetch_pulse))
             if p == "/api/briefing":
-                return self.send(200, briefing(force=force))
+                return self.send(200, briefing(force=force, ai=q.get("ai") == ["1"]))
             if p == "/api/greet":
                 return self.send(200, {"text": greeting()})
             if p == "/countries.json":

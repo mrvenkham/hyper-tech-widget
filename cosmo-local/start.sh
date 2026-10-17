@@ -42,17 +42,37 @@ json.dump(cfg, open(path, "w"), indent=1)
 PY
 }
 
-restart_server() { pkill -f "$DIR/server.py" 2>/dev/null; sleep 1; start_server; }
+stop_server() {
+  pkill -f "$DIR/watchdog.sh" 2>/dev/null
+  pkill -f "$DIR/server.py" 2>/dev/null
+  pkill -f "http.server $PORT" 2>/dev/null   # the very first COSMO version used this; it blocks port 8080
+}
+restart_server() { stop_server; sleep 1; start_server; }
 start_server() {
+  # The first COSMO version served the page with python's http.server; it would
+  # keep port 8080 busy and the new server could never start.
+  pkill -f "http.server $PORT" 2>/dev/null
   if ! pgrep -f "$DIR/server.py" > /dev/null; then
-    nohup python "$DIR/server.py" > "$DIR/server.log" 2>&1 &
-    for i in $(seq 1 20); do curl -fs "http://127.0.0.1:$PORT/api/greet" > /dev/null 2>&1 && break; sleep 0.5; done
+    # Watchdog: if the server ever crashes, start it again after 3 s.
+    cat > "$DIR/watchdog.sh" <<'WD'
+DIR="$(cd "$(dirname "$0")" && pwd)"
+while true; do
+  python "$DIR/server.py" >> "$DIR/server.log" 2>&1
+  echo "[server stopped, restarting $(date +%H:%M:%S)]" >> "$DIR/server.log"
+  sleep 3
+done
+WD
+    nohup bash "$DIR/watchdog.sh" > /dev/null 2>&1 &
+    for i in $(seq 1 30); do curl -fs "http://127.0.0.1:$PORT/api/greet" > /dev/null 2>&1 && return 0; sleep 0.5; done
+    say "The server didn't start. Last lines of the log:"
+    tail -n 15 "$DIR/server.log"
+    return 1
   fi
 }
 
 case "$1" in
   stop)
-    pkill -f "$DIR/server.py" 2>/dev/null
+    stop_server
     pkill -f "ollama serve" 2>/dev/null
     termux-wake-unlock 2>/dev/null
     say "COSMO is offline."
@@ -91,7 +111,7 @@ if ! curl -fs http://127.0.0.1:11434/api/tags > /dev/null 2>&1; then
 fi
 
 say "Starting the COSMO server…"
-start_server
+start_server || exit 1
 
 if [ "$1" != "--no-open" ]; then
   say "COSMO is online → http://127.0.0.1:$PORT"
