@@ -32,7 +32,8 @@ fi
 
 say "Downloading COSMO to $DIR…"
 mkdir -p "$DIR/data"
-for f in index.html server.py talk.py start.sh countries.json; do
+mkdir -p "$DIR/icons"
+  for f in index.html server.py talk.py start.sh countries.json manifest.webmanifest sw.js icons/icon-192.png icons/icon-512.png icons/icon-maskable-512.png; do
   curl -fsSL "$BASE/$f" -o "$DIR/$f"
 done
 chmod +x "$DIR/start.sh" "$DIR/server.py" "$DIR/talk.py"
@@ -71,6 +72,14 @@ if ! ollama list 2>/dev/null | grep -q "^$MODEL"; then
 fi
 
 ln -sf "$DIR/start.sh" "$PREFIX/bin/cosmo"
+
+# Let the COSMO Android app start COSMO in Termux by itself (Termux's RUN_COMMAND).
+mkdir -p "$HOME/.termux"
+touch "$HOME/.termux/termux.properties"
+if ! grep -q '^allow-external-apps *= *true' "$HOME/.termux/termux.properties"; then
+  echo "allow-external-apps = true" >> "$HOME/.termux/termux.properties"
+  termux-reload-settings 2>/dev/null || true
+fi
 
 # Start at boot (needs the Termux:Boot app, opened once).
 mkdir -p "$HOME/.termux/boot"

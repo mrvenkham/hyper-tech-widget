@@ -1,0 +1,55 @@
+# Builds the COSMO Android app and publishes the APK as a GitHub pre-release,
+# so the phone can download it from a fixed link:
+#   https://github.com/mrvenkham/hyper-tech-widget/releases/download/cosmo-app-latest/cosmo.apk
+name: COSMO Android app
+
+on:
+  push:
+    branches: [claude/hydeck-dashboard-frontend-pvipz2]
+    paths: ["cosmo-app/**", ".github/workflows/cosmo-app.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: android-actions/setup-android@v3
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.7"
+
+      - name: Build APK
+        working-directory: cosmo-app
+        run: gradle assembleDebug --no-daemon --stacktrace
+
+      - name: Collect APK
+        run: cp cosmo-app/app/build/outputs/apk/debug/app-debug.apk cosmo.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cosmo-apk
+          path: cosmo.apk
+
+      # A pre-release, so it never replaces HyDeck's own "latest" release.
+      - name: Publish to the cosmo-app-latest release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete cosmo-app-latest --yes --cleanup-tag || true
+          gh release create cosmo-app-latest cosmo.apk \
+            --prerelease \
+            --target "$GITHUB_SHA" \
+            --title "COSMO app · build ${GITHUB_RUN_NUMBER}" \
+            --notes "COSMO for Android, build ${GITHUB_RUN_NUMBER}. Install on your phone; it connects to the COSMO server running in Termux."

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="widget_title">COSMO</string>
+    <string name="widget_desc">COSMO\'s latest word to you. Tap to open JARVIS.</string>
+    <string name="widget_waiting">Tap to wake COSMO.</string>
+</resources>

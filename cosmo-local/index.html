@@ -4,6 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#090a0f">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icons/icon-192.png">
 <title>JARVIS OS</title>
 <!-- No CDN, no web fonts: this file is served by the COSMO server on the phone (server.py). -->
 <style>
@@ -165,6 +167,14 @@ button { background: none; border: 0; cursor: pointer; }
 .memrow span { overflow-wrap: anywhere; min-width: 0; }
 .panel[id="briefing"] { scroll-margin-top: 70px; }
 
+/* App mode */
+.chip-btn { cursor: pointer; color: var(--cyan); border-color: var(--cyan); transition: background-color .15s, box-shadow .15s; }
+.chip-btn:hover, .chip-btn:active { background: rgba(0,240,255,0.12); box-shadow: 0 0 12px rgba(0,240,255,0.35); }
+.dock { position: fixed; z-index: 50; right: max(16px, env(safe-area-inset-right, 0px)); bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+  padding: 12px 18px; border: 1px solid var(--cyan); background: rgba(9,10,15,0.9); color: var(--cyan); font-family: var(--font-display); font-weight: 800; letter-spacing: 0.14em;
+  box-shadow: 0 0 20px rgba(0,240,255,0.35); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); transition: transform .08s; }
+.dock:active { transform: scale(0.94); }
+
 /* Globe */
 .grid { grid-auto-flow: row dense; }
 .globe-wrap { position: relative; width: min(100%, 440px); margin: 0 auto; aspect-ratio: 1; max-width: 100%; }
@@ -192,6 +202,7 @@ button { background: none; border: 0; cursor: pointer; }
       <span class="chip"><span class="dot" id="c-net-dot"></span>Online <b id="c-net">…</b></span>
       <span class="chip" id="c-focus" hidden>Focus <b id="c-focus-t">25:00</b></span>
       <span class="chip"><b id="c-clock">--:--</b></span>
+      <button type="button" class="chip chip-btn" id="c-install" hidden>⤓ Install app</button>
     </div>
   </div>
 </header>
@@ -324,6 +335,7 @@ button { background: none; border: 0; cursor: pointer; }
     <div class="body" id="monitor"></div>
   </section>
 </main>
+<button type="button" class="dock" id="dock-apps" hidden aria-label="All apps">⌗ APPS</button>
 
 <script>
 /* ════════════════════════════════════════════════════════════════════
@@ -545,7 +557,9 @@ const News = (() => {
 const Cosmo = (() => {
   let ctl = null, voice = store.get("cosmo.voice", false);
   function speak(t) {
-    if (!voice || !("speechSynthesis" in window)) return;
+    if (!voice) return;
+    if (window.CosmoNative) { try { CosmoNative.speak(t.replace(/^\s*(TASK|MEMORY|ACTION):.*$/gim, "").replace(/\[[^\]]*\]\s*$/, "")); } catch {} return; }
+    if (!("speechSynthesis" in window)) return;
     try { speechSynthesis.cancel(); const u = new SpeechSynthesisUtterance(t.replace(/^\s*(TASK|MEMORY|ACTION):.*$/gim, "").replace(/\[[^\]]*\]\s*$/, "")); u.rate = 1.05; u.pitch = 0.9; speechSynthesis.speak(u); } catch {}
   }
   function showEvents(evs) {
@@ -588,7 +602,7 @@ const Cosmo = (() => {
       else { if (!full) line.remove(); Term.print(e.message.includes("No AI engine") ? "No AI engine running. In Termux: cosmo" : `Lost COSMO mid-thought (${e.message}).`, "t-err"); Status.check(true); }
     } finally { ctl = null; Core.thinking(false); $("#send").hidden = false; $("#stop").hidden = true; }
   }
-  return { ask, stop() { ctl?.abort(); try { speechSynthesis.cancel(); } catch {} }, toggleVoice() { voice = !voice; store.set("cosmo.voice", voice); return voice; } };
+  return { ask, stop() { ctl?.abort(); try { window.CosmoNative ? CosmoNative.stopSpeaking() : speechSynthesis.cancel(); } catch {} }, toggleVoice() { voice = !voice; store.set("cosmo.voice", voice); return voice; } };
 })();
 
 /* ---------- Terminal ---------- */
@@ -623,6 +637,16 @@ const Term = (() => {
     }],
     "/voice": ["Read replies aloud", () => say(Cosmo.toggleVoice() ? "Voice on." : "Voice off.")],
     "/forget": ["Clear chat history (keeps memories)", async () => { await api("/api/forget", {}); say("Chat history cleared. Long-term memories kept."); }],
+    "/apps": ["Open the app drawer (COSMO app)", () => window.CosmoNative ? CosmoNative.openApps() : print("Only in the COSMO Android app.", "t-sys")],
+    "/home": ["/home on|off  COSMO as your home screen", a => {
+      if (!window.CosmoNative) return print("Only in the COSMO Android app.", "t-sys");
+      const on = a !== "off"; CosmoNative.setLauncher(on);
+      say(on ? "Pick COSMO in the list that opens, then press Home. Welcome to JARVIS OS." : "Pick your old launcher in the list that opens.");
+    }],
+    "/assistant": ["Make COSMO your power-button assistant", () => {
+      if (!window.CosmoNative) return print("Only in the COSMO Android app.", "t-sys");
+      CosmoNative.openAssistantSettings(); say("Choose COSMO as the default digital assistant app.");
+    }],
     "/clear": ["Clear the terminal", () => { out.innerHTML = ""; }],
   };
   function run(raw) {
@@ -639,9 +663,16 @@ const Term = (() => {
   $("#quick").innerHTML = ["What's the news?", "Plan my day", "/brief", "/status", "/focus 25", "/voice"].map(c => `<button type="button" class="btn sm" data-c="${c}">${c}</button>`).join("");
   $("#quick").addEventListener("click", e => { const b = e.target.closest("[data-c]"); if (b) run(b.dataset.c); });
 
-  // Voice input via Chrome (uses Google's speech service, so it needs internet).
+  // Voice input. In the COSMO app, Android's own recognizer; in Chrome, Chrome's.
+  // Both use Google's speech service on most phones, so they need internet.
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (SR) {
+  if (window.CosmoNative) {
+    const mic = $("#mic"); mic.hidden = false;
+    window.cosmoListening = on => mic.classList.toggle("live", !!on);
+    window.cosmoHeard = text => { if (text && text.trim()) run(text); };
+    window.cosmoMicError = msg => print(msg, "t-err");
+    mic.addEventListener("click", () => { try { CosmoNative.listen(); } catch (e) { print("Mic unavailable: " + e.message, "t-err"); } });
+  } else if (SR) {
     const mic = $("#mic"); mic.hidden = false; let rec = null;
     mic.addEventListener("click", () => {
       if (rec) { rec.stop(); return; }
@@ -878,6 +909,23 @@ const Country = (() => {
   });
   $("#crefresh").addEventListener("click", () => current && show(current, true));
   return { show };
+})();
+
+/* ---------- App mode ----------
+   In Chrome: registers the service worker so JARVIS can be installed as an app.
+   Inside the COSMO Android app: window.CosmoNative exists, so show the APPS dock. */
+(() => {
+  if (window.CosmoNative) {
+    const dock = $("#dock-apps"); dock.hidden = false;
+    dock.addEventListener("click", () => CosmoNative.openApps());
+    $("#out").parentElement.closest(".panel").querySelector(".tag").textContent = "Talk normally · /help · /home · /assistant";
+    return;
+  }
+  if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
+  let evt = null;
+  window.addEventListener("beforeinstallprompt", e => { e.preventDefault(); evt = e; $("#c-install").hidden = false; });
+  $("#c-install").addEventListener("click", async () => { if (!evt) return; evt.prompt(); await evt.userChoice.catch(() => {}); evt = null; $("#c-install").hidden = true; });
+  window.addEventListener("appinstalled", () => { $("#c-install").hidden = true; Core.log("COSMO installed as an app."); });
 })();
 
 /* ---------- COSMO speaks first ---------- */

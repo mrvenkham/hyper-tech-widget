@@ -753,6 +753,17 @@ def scheduler():
 
 
 # ───────────────────────── web server ─────────────────────────
+# Files the page needs, served as-is. Only these paths; nothing else on the phone is reachable.
+STATIC = {
+    "/countries.json": "application/json",
+    "/manifest.webmanifest": "application/manifest+json",
+    "/sw.js": "text/javascript",
+    "/icons/icon-192.png": "image/png",
+    "/icons/icon-512.png": "image/png",
+    "/icons/icon-maskable-512.png": "image/png",
+}
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "COSMO/1.0"
 
@@ -805,9 +816,9 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(200, briefing(force=force, ai=q.get("ai") == ["1"]))
             if p == "/api/greet":
                 return self.send(200, {"text": greeting()})
-            if p == "/countries.json":
-                with open(os.path.join(HERE, "countries.json"), "rb") as f:
-                    return self.send(200, f.read())
+            if p in STATIC:
+                with open(os.path.join(HERE, p.lstrip("/")), "rb") as f:
+                    return self.send(200, f.read(), STATIC[p])
             if p == "/api/country":
                 return self.send(200, fetch_country(q.get("name", [""])[0], force=force))
             if p == "/api/country/brief":
