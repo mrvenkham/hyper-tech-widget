@@ -215,6 +215,7 @@ footer { font-family: var(--font-mono); font-size: 0.66rem; color: var(--dim); l
     <div class="chips" aria-label="System status">
       <span class="chip"><span class="dot ok" id="h-core-dot"></span>Core <b id="h-core">Optimized</b></span>
       <span class="chip"><span class="dot" id="h-store-dot"></span>Brain <b id="h-store">Linking…</b></span>
+      <span class="chip"><span class="dot" id="h-cosmo-dot"></span>COSMO <b id="h-cosmo">Waking…</b></span>
       <span class="chip focus" id="h-focus" hidden>Focus <b id="h-focus-t">25:00</b></span>
       <span class="chip"><b id="h-clock">--:--</b></span>
     </div>
@@ -309,15 +310,16 @@ footer { font-family: var(--font-mono); font-size: 0.66rem; color: var(--dim); l
     <section class="panel lg:col-span-12" aria-labelledby="t-term">
       <div class="panel-head">
         <h2 class="panel-title" id="t-term"><i>M4</i>Command Line</h2>
-        <span class="panel-tag">Type /help · ↑ for history</span>
+        <span class="panel-tag">Talk to COSMO · /help for commands</span>
       </div>
       <div class="term">
         <div class="term-out" id="term-out" aria-live="polite"></div>
         <form class="term-form" id="term-form" autocomplete="off">
           <span class="prompt" aria-hidden="true">boss@jarvis:~$</span>
           <label for="term-input" class="sr-only">Command</label>
-          <input class="field" id="term-input" spellcheck="false" autocapitalize="off" placeholder="/optimize">
-          <button class="btn sm" type="submit">Run</button>
+          <input class="field" id="term-input" spellcheck="false" autocapitalize="off" placeholder="Ask COSMO anything, or /help">
+          <button class="btn sm" type="submit" id="term-run">Run</button>
+          <button class="btn sm" type="button" id="term-stop" hidden>Stop</button>
         </form>
         <div class="quick-cmds" id="quick-cmds"></div>
       </div>
@@ -673,6 +675,7 @@ const Terminal = (() => {
   function print(text, cls = "t-j") {
     const d = document.createElement("div"); d.className = cls; d.textContent = text;
     out.append(d); out.scrollTop = out.scrollHeight;
+    return d;
   }
   const say = t => print(t, "t-j");
   const later = (ms, fn) => setTimeout(fn, reduceMotion ? 0 : ms);
@@ -735,6 +738,14 @@ const Terminal = (() => {
       const open = Brain.all.filter(n => n.type === "task" && !n.done);
       say(open.length ? `COSMO check: your oldest open task is "${open[open.length - 1].text}". Next hour, that one. Go.` : "COSMO check: zero open tasks. Either you're done or you haven't written anything down. Which is it, boss?");
     } },
+    "/ask": { desc: "/ask <question>  talk to COSMO", run(arg) {
+      if (!arg) return print("Usage: /ask how do I get my first 10 HyDeck buyers?", "t-err");
+      Cosmo.ask(arg);
+    } },
+    "/voice": { desc: "Toggle COSMO reading replies aloud", run() {
+      say(Cosmo.toggleVoice() ? "Voice output on. Turn your volume up, boss." : "Voice output off. Back to silent running.");
+    } },
+    "/forget": { desc: "Clear COSMO's chat memory", run() { Cosmo.forget(); say("Conversation memory wiped. Your brain entries are untouched."); } },
     "/clear": { desc: "Clear the terminal", run() { out.innerHTML = ""; } },
   };
 
@@ -745,7 +756,7 @@ const Terminal = (() => {
     const [cmd, ...rest] = line.split(/\s+/);
     const c = COMMANDS[cmd.toLowerCase()];
     if (c) return c.run(rest.join(" "));
-    if (!line.startsWith("/")) { say(pick(["Commands start with a slash, boss. Try /help.", "I appreciate the chat, but I only take orders with a /. Try /help."])); return; }
+    if (!line.startsWith("/")) return Cosmo.ask(line); // plain text = talk to COSMO
     print(`Unknown command: ${cmd}`, "t-err");
     say("Not in my protocols. /help lists what I can do.");
   }
@@ -755,12 +766,139 @@ const Terminal = (() => {
     if (e.key === "ArrowUp" && history.length) { hIdx = Math.min(hIdx + 1, history.length - 1); input.value = history[hIdx]; e.preventDefault(); }
     if (e.key === "ArrowDown") { hIdx = Math.max(hIdx - 1, -1); input.value = hIdx < 0 ? "" : history[hIdx]; e.preventDefault(); }
   });
-  $("#quick-cmds").innerHTML = ["/optimize", "/sync-recall", "/launch-hydeck", "/status", "/focus 25", "/cosmo"].map(c => `<button type="button" class="btn sm" data-cmd="${c}">${c}</button>`).join("");
+  input.addEventListener("keydown", e => { if (e.key === "Escape") Cosmo.stop(); });
+  $("#term-stop").addEventListener("click", () => Cosmo.stop());
+  $("#quick-cmds").innerHTML = ["/optimize", "/status", "/focus 25", "/cosmo", "/voice", "/launch-hydeck", "/sync-recall"].map(c => `<button type="button" class="btn sm" data-cmd="${c}">${c}</button>`).join("");
   $("#quick-cmds").addEventListener("click", e => { const b = e.target.closest("[data-cmd]"); if (b) run(b.dataset.cmd); });
 
   print("JARVIS OS v1.0 · HyDeck Core", "t-sys");
-  say("Good to see you, boss. Type /help, or tap a command below.");
-  return { run };
+  say("Good to see you, boss. Talk to me in plain words, or tap a command below.");
+  return { run, print };
+})();
+
+/* ════════════════════ COSMO: the live AI coach ════════════════════
+   Plain text typed in the terminal goes to Claude through the artifact's
+   `sample` capability, on the viewer's own Claude account. Each call is
+   memoryless, so the page sends: COSMO's rules + live state (open tasks,
+   monitor values, time) + the last few chat turns. COSMO can call one page
+   tool, add_task, to write steps straight into the Second Brain.
+   Later, an own backend would replace `sample(...)` with
+   POST /api/cosmo/chat { messages, state } → streamed text.               */
+const Cosmo = (() => {
+  const sampleReady = window.claude?.use ? window.claude.use("sample").catch(() => null) : Promise.resolve(null);
+  let sample = null, canTools = false, off = false, ctl = null, voice = false;
+  let turns = []; // [{role, content}] — the chat the page remembers, newest last
+
+  function setChip(state) {
+    const map = { online: ["ok", "Online"], thinking: ["cy", "Thinking"], offline: ["bad", "Offline"] };
+    const [dot, label] = map[state];
+    $("#h-cosmo-dot").className = "dot " + dot; $("#h-cosmo").textContent = label;
+  }
+
+  sampleReady.then(async s => {
+    sample = s;
+    if (!s) { off = true; setChip("offline"); return; }
+    const lim = await s.limits().catch(() => null);
+    canTools = !!lim?.tools;
+    setChip("online");
+  });
+
+  function rules() {
+    const open = Brain.all.filter(n => n.type === "task" && !n.done).slice(0, 15);
+    const m = Monitor.values;
+    const t = new Date().toLocaleString("en-GB", { timeZone: "Asia/Kuala_Lumpur", weekday: "long", hour: "2-digit", minute: "2-digit" });
+    return `You are COSMO, the AI coach living inside the user's JARVIS OS phone console. The user is a 16-year-old developer and creator in Kedah, Malaysia ("boss"). They build HyDeck, an Android now-playing widget app sold on Gumroad with theme packs (MIDAS, GYM), plus web dashboards. Stack: Tailwind CSS, HTML/JS, Bolt.new, Recall.
+
+Voice: sharp, direct, slightly witty, like Jarvis. Casual Malaysian touches ("bro", "boss", "steady") are fine sometimes. No generic motivational quotes. Call out slacking constructively. Remember they are 16: sleep, school and health are part of performance; never push all-nighters.
+
+Rules:
+- Keep replies under 120 words, plain text (no markdown headings or tables). Short numbered steps are fine.
+- When they state an open-ended goal, break it into exactly 3 concrete steps they can finish within the hour${canTools ? ", and call add_task once per step so they land in their Second Brain" : ""}.
+- Prefer actions that put HyDeck in front of buyers over building new prototypes.
+- End with a one-line status in square brackets, e.g. [System Status: Ready for Next Objective, Boss].
+
+Live console state (Malaysia time ${t}):
+Open tasks (${open.length}): ${open.length ? open.map(n => `"${n.text}"`).join("; ") : "none"}
+Monitor: Code Layout ${m.layout}%, Recall docs ${m.recall}/20, Theme packs ${m.packs}/4, Devlog ${m.devlog}%.`;
+  }
+
+  const TOOLS = [{
+    name: "add_task",
+    description: "Add one task to the user's Second Brain checklist. Use for each concrete step you give them. Returns 'added'.",
+    inputSchema: { type: "object", properties: { text: { type: "string", description: "The task, under 100 characters, starting with a verb." } }, required: ["text"] },
+    async execute(input) {
+      const text = String(input.text || "").trim().slice(0, 140);
+      if (!text) throw new Error("Empty task text");
+      await Brain.add(text, "task");
+      Terminal.print(`+ task added to brain: ${text}`, "t-ok");
+      return "added";
+    },
+  }];
+
+  function speak(text) {
+    if (!voice || !("speechSynthesis" in window)) return;
+    try {
+      speechSynthesis.cancel();
+      const u = new SpeechSynthesisUtterance(text.replace(/\[[^\]]*\]\s*$/, ""));
+      const v = speechSynthesis.getVoices().find(v => /en-GB/i.test(v.lang)) || speechSynthesis.getVoices().find(v => /^en/i.test(v.lang));
+      if (v) u.voice = v;
+      u.rate = 1.05; u.pitch = 0.9;
+      speechSynthesis.speak(u);
+    } catch {}
+  }
+
+  const COPY = {
+    not_granted: "COSMO needs your OK to use Claude. Reload the page and allow it when asked.",
+    sampling_disabled: "Claude isn't available on this account, so COSMO can't think here.",
+    rate_limited: "COSMO is rate-limited right now. Give it a minute, then try again.",
+    session_expired: "Your Claude session expired. Sign in again, then reload.",
+    refused: "COSMO won't answer that one. Try asking differently.",
+    prompt_too_large: "Too much context. Type /forget to clear the chat memory.",
+  };
+  const FATAL = ["not_granted", "sampling_disabled", "not_declared", "capability_disabled", "capability_removed"];
+
+  async function ask(text) {
+    if (ctl) return Terminal.print("COSMO is still answering. Press Stop or Esc first.", "t-err");
+    await sampleReady;
+    if (off || !sample) return Terminal.print("COSMO's AI link isn't available in this view. Open the published page in the Claude app or claude.ai, signed in.", "t-err");
+
+    turns.push({ role: "user", content: text });
+    turns = turns.slice(-12); // keep the last 6 exchanges
+    const line = Terminal.print("Thinking…", "t-j");
+    ctl = new AbortController();
+    setChip("thinking");
+    $("#term-run").hidden = true; $("#term-stop").hidden = false;
+    try {
+      const opts = { signal: ctl.signal, modelTier: "quick", onText: ({ text }) => { line.textContent = text; $("#term-out").scrollTop = 1e9; } };
+      if (canTools) opts.tools = TOOLS; else opts.cache = false;
+      const res = await sample([{ role: "user", content: rules() }, ...turns], opts);
+      line.textContent = res.text;
+      if (res.truncated) Terminal.print("(cut short — ask for less at a time)", "t-sys");
+      turns.push({ role: "assistant", content: res.text });
+      Core.log("COSMO responded.", "cy");
+      speak(res.text);
+    } catch (e) {
+      turns.pop(); // drop the unanswered question so the chat stays well-formed
+      if (e?.code === "cancelled") { line.textContent = (e.text || "") + (e.text ? " …" : "") || "Stopped."; }
+      else {
+        line.textContent = e?.text || "";
+        if (!line.textContent) line.remove();
+        Terminal.print(COPY[e?.code] || "Lost the link to COSMO mid-thought. Try again.", "t-err");
+        if (FATAL.includes(e?.code)) { off = true; setChip("offline"); }
+      }
+    } finally {
+      ctl = null;
+      if (!off) setChip("online");
+      $("#term-run").hidden = false; $("#term-stop").hidden = true;
+    }
+  }
+
+  return {
+    ask,
+    stop() { ctl?.abort(); try { speechSynthesis.cancel(); } catch {} },
+    forget() { turns = []; },
+    toggleVoice() { voice = !voice; if (!voice) { try { speechSynthesis.cancel(); } catch {} } return voice; },
+  };
 })();
 
 /* ════════════════════ Header + boot ════════════════════ */
