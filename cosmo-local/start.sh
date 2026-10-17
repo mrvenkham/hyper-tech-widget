@@ -6,6 +6,13 @@ PORT=8080
 
 say() { printf '\033[1;36m[COSMO]\033[0m %s\n' "$*"; }
 
+if [ "$1" = "update" ]; then
+  BASE="https://raw.githubusercontent.com/mrvenkham/hyper-tech-widget/claude/hydeck-dashboard-frontend-pvipz2/cosmo-local"
+  curl -fsSL "$BASE/index.html" -o "$DIR/index.html" && curl -fsSL "$BASE/start.sh" -o "$DIR/start.sh" && chmod +x "$DIR/start.sh"
+  say "Updated. Reload the JARVIS page in Chrome."
+  exit 0
+fi
+
 if [ "$1" = "stop" ]; then
   pkill -f "ollama serve" 2>/dev/null
   pkill -f "http.server $PORT" 2>/dev/null

@@ -243,6 +243,11 @@ button { background: none; border: 0; cursor: pointer; }
                Second Brain tasks (works with any small model, no tool calling needed)
    ════════════════════════════════════════════════════════════════════ */
 const OLLAMA = "http://127.0.0.1:11434";
+// Speed settings for phone CPUs:
+const KEEP_ALIVE = "30m";  // keep the model in RAM between questions (Ollama's default unloads after 5 min)
+const NUM_CTX = 2048;      // smaller context window = less work per reply
+const NUM_PREDICT = 220;   // cap reply length (~150 words)
+const MAX_TURNS = 8;       // chat turns sent back each time
 const $ = s => document.querySelector(s);
 const pad2 = n => String(n).padStart(2, "0");
 const now = () => { const d = new Date(); return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`; };
@@ -354,23 +359,31 @@ const Engine = (() => {
       models = (j.models || []).map(m => m.name);
       if (!models.length) { up = false; chip("bad", "No model"); Term.print("Engine is running but has no model. In Termux: ollama pull llama3.2:3b", "t-err"); return; }
       if (!model || !models.includes(model)) { model = models[0]; store.set("cosmo.model", model); }
-      if (!up) Core.log(`Engine online · ${model}`);
+      if (!up) { Core.log(`Engine online · ${model}`); warm(); }
       up = true; chip("ok", "Online"); $("#c-model").textContent = model; $("#offline-help").hidden = true;
     } catch {
       if (up) Core.log("Engine went offline.");
       up = false; chip("bad", "Offline"); $("#offline-help").hidden = false;
     }
   }
+  // Load the model into memory as soon as the engine is reachable and keep it
+  // there for 30 min, so the first question doesn't wait for a cold load.
+  function warm() {
+    if (!model) return;
+    fetch(OLLAMA + "/api/generate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ model, keep_alive: KEEP_ALIVE }) })
+      .then(() => Core.log("Model loaded and ready.")).catch(() => {});
+  }
   check(); setInterval(check, 8000);
-  return { get up() { return up; }, get model() { return model; }, get models() { return models; }, setModel(m) { model = m; store.set("cosmo.model", m); $("#c-model").textContent = m; }, check };
+  return { get up() { return up; }, get model() { return model; }, get models() { return models; }, setModel(m) { model = m; store.set("cosmo.model", m); $("#c-model").textContent = m; warm(); }, check };
 })();
 
 /* ---------- COSMO ---------- */
 const Cosmo = (() => {
   let history = [], ctl = null, voice = store.get("cosmo.voice", false);
-  function system() {
-    const open = Brain.open().slice(0, 12), m = Monitor.v;
-    return `You are COSMO, a sharp, direct, slightly witty personal coach, like Jarvis, running fully offline on the user's phone.
+  // The system prompt never changes, so Ollama can reuse its cached work for it
+  // (and for earlier turns) instead of re-reading everything on every question.
+  // Live state rides on the newest message only.
+  const SYSTEM = `You are COSMO, a sharp, direct, slightly witty personal coach, like Jarvis, running fully offline on the user's phone.
 The user is a 16-year-old developer and creator in Kedah, Malaysia, who builds HyDeck, an Android widget app sold on Gumroad with theme packs (MIDAS, GYM). Call them "boss". Casual Malaysian words like "bro" and "steady" are fine sometimes.
 Rules:
 - Keep replies short: under 100 words, plain text, no markdown.
@@ -379,9 +392,10 @@ Rules:
 - Sleep, school and health are part of performance. Never push all-nighters.
 - Prefer actions that get HyDeck in front of buyers over building new prototypes.
 - End with a short status line in square brackets.
-Current state (${new Date().toLocaleString("en-GB", { weekday: "long", hour: "2-digit", minute: "2-digit" })}):
-Open tasks: ${open.length ? open.map(n => `"${n.text}"`).join("; ") : "none"}
-Monitor: Code Layout ${m.layout}%, Recall docs ${m.recall}/20, Theme packs ${m.packs}/4, Devlog ${m.devlog}%.`;
+Each message may end with a [Context: …] block showing the user's current tasks and project numbers. Use it; don't repeat it back.`;
+  function context() {
+    const open = Brain.open().slice(0, 8), m = Monitor.v;
+    return `[Context: ${new Date().toLocaleString("en-GB", { weekday: "short", hour: "2-digit", minute: "2-digit" })}. Open tasks: ${open.length ? open.map(n => n.text).join("; ") : "none"}. Layout ${m.layout}%, Recall ${m.recall}/20, Packs ${m.packs}/4, Devlog ${m.devlog}%.]`;
   }
   function speak(t) {
     if (!voice || !("speechSynthesis" in window)) return;
@@ -390,14 +404,16 @@ Monitor: Code Layout ${m.layout}%, Recall docs ${m.recall}/20, Theme packs ${m.p
   async function ask(text) {
     if (ctl) return Term.print("Still answering. Tap Stop first.", "t-err");
     if (!Engine.up) { await Engine.check(); if (!Engine.up) return Term.print("Engine offline. Open Termux and type: cosmo", "t-err"); }
-    history.push({ role: "user", content: text }); history = history.slice(-10);
+    history.push({ role: "user", content: `${text}\n\n${context()}` });
+    // Trim in chunks, not one turn at a time, so the cached prefix survives most calls.
+    if (history.length > MAX_TURNS + 4) history = history.slice(-MAX_TURNS);
     const line = Term.print("Thinking…", "t-j");
     ctl = new AbortController(); Core.thinking(true); $("#send").hidden = true; $("#stop").hidden = false;
     let full = "";
     try {
       const r = await fetch(OLLAMA + "/api/chat", {
         method: "POST", signal: ctl.signal, headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ model: Engine.model, stream: true, messages: [{ role: "system", content: system() }, ...history], options: { temperature: 0.7, num_ctx: 4096 } }),
+        body: JSON.stringify({ model: Engine.model, stream: true, keep_alive: KEEP_ALIVE, messages: [{ role: "system", content: SYSTEM }, ...history], options: { temperature: 0.7, num_ctx: NUM_CTX, num_predict: NUM_PREDICT } }),
       });
       if (!r.ok) throw new Error(`Engine answered ${r.status}`);
       const reader = r.body.getReader(), dec = new TextDecoder(); let buf = "";
@@ -410,6 +426,12 @@ Monitor: Code Layout ${m.layout}%, Recall docs ${m.recall}/20, Theme packs ${m.p
           const j = JSON.parse(l);
           if (j.error) throw new Error(j.error);
           if (j.message?.content) { full += j.message.content; line.textContent = full; $("#out").scrollTop = 1e9; }
+          if (j.done && j.eval_count && j.eval_duration) {
+            // Ollama reports timings in nanoseconds.
+            const tps = j.eval_count / (j.eval_duration / 1e9);
+            const think = (j.load_duration || 0) / 1e9 + (j.prompt_eval_duration || 0) / 1e9;
+            Term.print(`⚡ ${tps.toFixed(1)} tokens/s · ${think.toFixed(1)} s before the first word`, "t-sys");
+          }
         }
       }
       history.push({ role: "assistant", content: full });

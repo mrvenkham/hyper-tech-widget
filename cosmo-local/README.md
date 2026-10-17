@@ -33,6 +33,7 @@ notes and your tasks all stay on the device. It works in airplane mode.
 | Stop COSMO (saves battery) | In Termux, type `cosmo stop` |
 | Home-screen icon | In Chrome on the JARVIS page: ⋮ → Add to Home screen. Termux still has to be running. |
 | Switch model | `ollama pull <name>` in Termux, then `/model <name>` in JARVIS |
+| Get the newest JARVIS page | `cosmo update`, then reload the page |
 
 ## Know the limits
 
@@ -56,5 +57,5 @@ notes and your tasks all stay on the device. It works in airplane mode.
 | `pkg install ollama` fails | The installer retries through the TUR repo. If both fail, run `pkg update` and try again later. |
 | JARVIS says **Engine Offline** | Termux isn't running COSMO. Type `cosmo`. |
 | JARVIS says **No model** | `ollama pull llama3.2:3b` |
-| Replies are very slow | Use a smaller model: `ollama pull gemma3:1b`, then `/model gemma3:1b` |
+| Replies are very slow | Check the ⚡ line after each reply. Under ~5 tokens/s, use a smaller model: `ollama pull qwen2.5:1.5b` or `gemma3:1b`, then `/model <name>`. Close other apps and let the phone cool down. |
 | Notes vanished | They live in Chrome's storage for `127.0.0.1:8080`. Clearing Chrome's site data deletes them. |
