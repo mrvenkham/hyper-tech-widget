@@ -1,0 +1,1065 @@
+<title>HyDeck Local Food Grid</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<meta name="description" content="HyDeck Local Food Grid: a kitchen command center for a Kedah food business. Order board, rider dispatch, delivery zones around Alor Setar and Jitra, and quick actions.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=Barlow:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<!-- Tailwind (play CDN, pinned) handles layout utilities. Component look lives in the <style> block below. -->
+<script src="https://cdn.tailwindcss.com/3.4.17"></script>
+
+<style>
+/* Layout: sticky status header, then a 12-column deck — order board (8) + dispatch feed (4) on top,
+   zone & kitchen control (7) + command bar (5) below. 2 columns on tablets, 1 on phones. */
+:root {
+  --bg: #0d0e12;
+  --panel: rgba(20, 22, 30, 0.66);
+  --panel-solid: #14161e;
+  --line: rgba(130, 150, 190, 0.16);
+  --line-hot: rgba(0, 240, 255, 0.38);
+  --fg: #e7ecf6;
+  --muted: #8d96aa;
+  --dim: #596176;
+  --cyan: #00f0ff;     /* new orders, map, primary actions */
+  --purple: #b44dff;   /* cooking */
+  --venom: #3dff6e;    /* ready, healthy, riders free */
+  --warn: #ffb020;     /* on the road, SLA warning */
+  --danger: #ff3864;   /* late, paused, sold out */
+  --font-display: "Chakra Petch", "Rajdhani", ui-sans-serif, system-ui, sans-serif;
+  --font-body: "Barlow", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color-scheme: dark;
+}
+
+html, body { background: var(--bg); color: var(--fg); }
+body { font-family: var(--font-body); font-size: 15px; line-height: 1.45; min-height: 100%; -webkit-font-smoothing: antialiased; }
+body::after {
+  content: ""; position: fixed; inset: 0; z-index: -1; pointer-events: none;
+  background:
+    radial-gradient(60rem 30rem at 90% -10%, rgba(61, 255, 110, 0.08), transparent 60%),
+    radial-gradient(50rem 30rem at -10% 30%, rgba(0, 240, 255, 0.10), transparent 60%),
+    linear-gradient(rgba(130,150,190,0.05) 1px, transparent 1px) 0 0 / 100% 32px,
+    linear-gradient(90deg, rgba(130,150,190,0.05) 1px, transparent 1px) 0 0 / 32px 100%,
+    var(--bg);
+}
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 40; background: var(--panel-solid); }
+.gutter { padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+
+/* ---------- Header ---------- */
+.topbar {
+  position: sticky; top: env(safe-area-inset-top, 0px); z-index: 30;
+  background: rgba(13, 14, 18, 0.8);
+  backdrop-filter: blur(16px) saturate(150%); -webkit-backdrop-filter: blur(16px) saturate(150%);
+  border-bottom: 1px solid var(--line);
+}
+.brandmark {
+  width: 38px; height: 38px; flex: none; display: grid; place-items: center;
+  border: 1px solid var(--line-hot);
+  background: linear-gradient(135deg, rgba(0,240,255,0.18), rgba(61,255,110,0.14));
+  clip-path: polygon(0 0, calc(100% - 9px) 0, 100% 9px, 100% 100%, 9px 100%, 0 calc(100% - 9px));
+  font-family: var(--font-display); font-weight: 700; color: var(--cyan);
+}
+.ws-name { font-family: var(--font-display); font-weight: 700; font-size: 1.05rem; letter-spacing: 0.02em; }
+.ws-name em { font-style: normal; color: var(--cyan); }
+.ws-sub { font-family: var(--font-mono); font-size: 0.72rem; color: var(--muted); }
+.status-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.chip {
+  display: inline-flex; align-items: center; gap: 7px; padding: 5px 10px;
+  border: 1px solid var(--line); background: rgba(255,255,255,0.025);
+  font-family: var(--font-mono); font-size: 0.72rem; color: var(--muted);
+  white-space: nowrap; font-variant-numeric: tabular-nums;
+}
+.chip b { color: var(--fg); font-weight: 600; }
+.dot { width: 7px; height: 7px; border-radius: 50%; background: var(--dim); flex: none; }
+.dot.ok { background: var(--venom); box-shadow: 0 0 8px var(--venom); }
+.dot.warn { background: var(--warn); box-shadow: 0 0 8px var(--warn); }
+.dot.bad { background: var(--danger); box-shadow: 0 0 8px var(--danger); }
+.state-pill {
+  display: inline-flex; align-items: center; gap: 8px; padding: 5px 12px;
+  font-family: var(--font-display); font-weight: 700; font-size: 0.8rem; letter-spacing: 0.14em;
+  color: var(--bg); background: var(--venom); box-shadow: 0 0 18px rgba(61,255,110,0.45);
+}
+.state-pill .dot { background: var(--bg); box-shadow: none; animation: blink 1.4s steps(2) infinite; }
+.state-pill.rush { background: var(--warn); box-shadow: 0 0 18px rgba(255,176,32,0.5); }
+@keyframes blink { 50% { opacity: 0.25; } }
+
+/* ---------- Panels ---------- */
+.panel {
+  position: relative; display: flex; flex-direction: column; min-width: 0;
+  background: var(--panel); border: 1px solid var(--line);
+  backdrop-filter: blur(14px) saturate(140%); -webkit-backdrop-filter: blur(14px) saturate(140%);
+}
+.panel::before, .panel::after { content: ""; position: absolute; width: 14px; height: 14px; pointer-events: none; border: 0 solid var(--cyan); opacity: 0.85; }
+.panel::before { top: -1px; left: -1px; border-width: 2px 0 0 2px; }
+.panel::after { bottom: -1px; right: -1px; border-width: 0 2px 2px 0; }
+.panel.purple::before, .panel.purple::after { border-color: var(--purple); }
+.panel.venom::before, .panel.venom::after { border-color: var(--venom); }
+.panel-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 14px 18px; border-bottom: 1px solid var(--line); }
+.panel-title { font-family: var(--font-display); font-weight: 600; font-size: 1rem; letter-spacing: 0.06em; text-transform: uppercase; }
+.panel-tag { font-family: var(--font-mono); font-size: 0.68rem; letter-spacing: 0.08em; color: var(--dim); text-transform: uppercase; }
+.panel-body { padding: 16px 18px 18px; display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.sub-label { font-family: var(--font-mono); font-size: 0.66rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); margin-bottom: 8px; }
+
+/* ---------- Buttons ---------- */
+.btn {
+  position: relative; overflow: hidden;
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  padding: 8px 14px; border: 1px solid var(--line); background: rgba(255,255,255,0.03); color: var(--fg);
+  font-family: var(--font-display); font-weight: 600; font-size: 0.82rem; letter-spacing: 0.05em;
+  cursor: pointer; user-select: none;
+  transition: border-color .18s, background-color .18s, color .18s, box-shadow .18s, transform .08s;
+}
+.btn:hover { border-color: var(--line-hot); background: rgba(0,240,255,0.07); box-shadow: 0 0 16px rgba(0,240,255,0.18), inset 0 0 12px rgba(0,240,255,0.06); }
+.btn:active { transform: scale(0.96); }
+.btn:focus-visible, .seg button:focus-visible, .chip-btn:focus-visible, .switch:focus-visible, input:focus-visible, .zone-hit:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+.btn[disabled] { opacity: 0.45; cursor: not-allowed; box-shadow: none; transform: none; }
+.btn.is-on { border-color: var(--cyan); color: var(--cyan); background: rgba(0,240,255,0.1); box-shadow: 0 0 14px rgba(0,240,255,0.25); }
+.btn.warn.is-on { border-color: var(--warn); color: var(--warn); background: rgba(255,176,32,0.1); box-shadow: 0 0 14px rgba(255,176,32,0.3); }
+.btn svg { width: 18px; height: 18px; flex: none; }
+.ripple { position: absolute; border-radius: 50%; pointer-events: none; background: rgba(0,240,255,0.35); transform: scale(0); animation: ripple .55s ease-out forwards; }
+@keyframes ripple { to { transform: scale(1); opacity: 0; } }
+
+.seg { display: inline-flex; border: 1px solid var(--line); background: rgba(0,0,0,0.25); }
+.seg button { padding: 6px 12px; font-family: var(--font-mono); font-size: 0.72rem; letter-spacing: 0.06em; color: var(--muted); transition: color .15s, background-color .15s, box-shadow .15s; }
+.seg button + button { border-left: 1px solid var(--line); }
+.seg button:hover { color: var(--fg); background: rgba(255,255,255,0.04); }
+.seg button[aria-pressed="true"] { color: var(--bg); background: var(--cyan); box-shadow: 0 0 14px rgba(0,240,255,0.45); }
+
+/* ---------- KPIs ---------- */
+.kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); }
+.kpi { background: var(--panel-solid); padding: 12px 14px; min-width: 0; }
+.kpi-label { font-family: var(--font-mono); font-size: 0.66rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
+.kpi-value { font-family: var(--font-display); font-weight: 700; font-size: 1.6rem; line-height: 1.15; font-variant-numeric: tabular-nums; }
+.kpi-value small { font-size: 0.6em; color: var(--muted); font-weight: 600; margin-right: 3px; }
+.kpi-note { font-family: var(--font-mono); font-size: 0.7rem; color: var(--muted); }
+@media (max-width: 640px) { .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+/* ---------- Order board ---------- */
+.board { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+@media (max-width: 1023px) { .board { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 560px) { .board { grid-template-columns: minmax(0, 1fr); } }
+.col { display: flex; flex-direction: column; min-width: 0; background: rgba(0,0,0,0.22); border: 1px solid var(--line); }
+.col-head { display: flex; align-items: center; justify-content: space-between; padding: 9px 11px; border-bottom: 2px solid var(--c); font-family: var(--font-display); font-weight: 700; font-size: 0.78rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--c); }
+.col-head .count { font-family: var(--font-mono); font-size: 0.72rem; color: var(--fg); background: rgba(255,255,255,0.06); padding: 1px 7px; }
+.col-list { display: flex; flex-direction: column; gap: 8px; padding: 8px; max-height: 470px; min-height: 120px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--dim) transparent; }
+.col-empty { font-family: var(--font-mono); font-size: 0.72rem; color: var(--dim); padding: 14px 4px; text-align: center; }
+.c-new { --c: var(--cyan); } .c-cooking { --c: var(--purple); } .c-ready { --c: var(--venom); } .c-out { --c: var(--warn); }
+
+.ticket {
+  position: relative; padding: 10px 11px 10px 13px; background: var(--panel-solid); border: 1px solid var(--line);
+  display: flex; flex-direction: column; gap: 6px; animation: slideIn .28s ease-out;
+  transition: border-color .2s, box-shadow .2s;
+}
+.ticket::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--sla, var(--venom)); box-shadow: 0 0 10px var(--sla, var(--venom)); }
+.ticket.sla-warn { --sla: var(--warn); }
+.ticket.sla-late { --sla: var(--danger); border-color: rgba(255,56,100,0.45); }
+.ticket.flash { box-shadow: 0 0 0 1px var(--cyan), 0 0 20px rgba(0,240,255,0.35); }
+.t-top { display: flex; justify-content: space-between; align-items: baseline; gap: 6px; }
+.t-id { font-family: var(--font-mono); font-weight: 600; font-size: 0.8rem; }
+.t-age { font-family: var(--font-mono); font-size: 0.74rem; font-variant-numeric: tabular-nums; color: var(--sla, var(--venom)); }
+.t-meta { display: flex; flex-wrap: wrap; gap: 5px; font-size: 0.75rem; color: var(--muted); }
+.tag { font-family: var(--font-mono); font-size: 0.62rem; letter-spacing: 0.06em; padding: 1px 6px; border: 1px solid currentColor; text-transform: uppercase; }
+.tag.zone { color: var(--cyan); } .tag.pickup { color: var(--venom); } .tag.walkin { color: var(--warn); }
+.t-items { font-size: 0.84rem; line-height: 1.35; }
+.t-items li { display: flex; gap: 6px; } .t-items li b { font-family: var(--font-mono); font-size: 0.76rem; color: var(--muted); min-width: 2ch; }
+.t-note { font-size: 0.76rem; color: var(--warn); }
+.t-foot { display: flex; justify-content: space-between; align-items: center; gap: 6px; flex-wrap: wrap; padding-top: 6px; border-top: 1px dashed var(--line); }
+.t-total { font-family: var(--font-mono); font-size: 0.78rem; font-variant-numeric: tabular-nums; }
+.t-btn { padding: 5px 10px; font-size: 0.72rem; }
+.t-rider { font-family: var(--font-mono); font-size: 0.7rem; color: var(--warn); }
+@keyframes slideIn { from { opacity: 0; transform: translateY(6px); } }
+
+/* ---------- Dispatch feed ---------- */
+.feed { height: 460px; overflow-y: auto; overscroll-behavior: contain; padding: 8px 18px 14px; display: flex; flex-direction: column; scrollbar-width: thin; scrollbar-color: var(--dim) transparent; }
+@media (min-width: 1280px) { .feed { height: auto; flex: 1 1 0; min-height: 300px; } }
+.log { display: grid; grid-template-columns: auto auto minmax(0,1fr); gap: 4px 8px; align-items: baseline; padding: 7px 0; border-bottom: 1px solid var(--line); font-size: 0.86rem; animation: slideIn .25s ease-out; }
+.log time { font-family: var(--font-mono); font-size: 0.68rem; color: var(--dim); font-variant-numeric: tabular-nums; }
+.log .k { font-family: var(--font-mono); font-size: 0.6rem; letter-spacing: 0.1em; padding: 1px 5px; border: 1px solid currentColor; text-transform: uppercase; }
+.log .txt { overflow-wrap: anywhere; }
+.k-order { color: var(--cyan); } .k-kitchen { color: var(--purple); } .k-rider { color: var(--warn); }
+.k-done { color: var(--venom); } .k-alert { color: var(--danger); } .k-sys { color: var(--muted); }
+.feed-filter { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 18px; border-bottom: 1px solid var(--line); }
+.chip-btn { padding: 3px 9px; font-family: var(--font-mono); font-size: 0.66rem; letter-spacing: 0.08em; text-transform: uppercase; border: 1px solid var(--line); color: var(--muted); transition: all .15s; }
+.chip-btn:hover { color: var(--fg); border-color: var(--line-hot); }
+.chip-btn[aria-pressed="true"] { color: var(--cyan); border-color: var(--cyan); background: rgba(0,240,255,0.08); }
+
+/* ---------- Zone map + controls ---------- */
+.zone-layout { display: grid; grid-template-columns: minmax(0, 0.95fr) minmax(0, 1fr); gap: 18px; }
+@media (max-width: 760px) { .zone-layout { grid-template-columns: minmax(0, 1fr); } }
+.map-box { position: relative; border: 1px solid var(--line); background: radial-gradient(circle at 45% 55%, rgba(0,240,255,0.06), transparent 70%), rgba(0,0,0,0.3); max-width: 100%; }
+.map-box svg { display: block; width: 100%; height: auto; max-height: 440px; }
+.map-label { font-family: var(--font-mono); font-size: 9px; fill: var(--muted); letter-spacing: 0.04em; }
+.map-label.strong { fill: var(--fg); font-family: var(--font-display); font-weight: 700; font-size: 10.5px; letter-spacing: 0.06em; }
+.map-faint { fill: var(--dim); font-family: var(--font-mono); font-size: 8px; }
+.road { stroke: rgba(130,150,190,0.22); stroke-width: 1; stroke-dasharray: 3 3; fill: none; }
+.highway { stroke: rgba(130,150,190,0.3); stroke-width: 2.2; fill: none; }
+.coast { stroke: rgba(0,240,255,0.25); stroke-width: 1.2; fill: none; }
+.zone-ring { fill: rgba(0,240,255,0.08); stroke: var(--cyan); stroke-width: 1.2; transition: r .4s; }
+.zone-ring.paused { fill: rgba(255,56,100,0.06); stroke: var(--danger); stroke-dasharray: 3 2; }
+.zone-hit { cursor: pointer; }
+.zone-hit:hover .zone-ring { fill: rgba(0,240,255,0.18); }
+.zone-hit:hover .zone-ring.paused { fill: rgba(255,56,100,0.14); }
+.hub { fill: var(--venom); }
+.hub-ring { fill: none; stroke: var(--venom); stroke-width: 1; opacity: 0.6; }
+.rider-dot { stroke: var(--bg); stroke-width: 1.2; }
+.map-legend { display: flex; flex-wrap: wrap; gap: 12px; padding: 8px 10px; border-top: 1px solid var(--line); font-family: var(--font-mono); font-size: 0.66rem; color: var(--muted); }
+.map-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.lg { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+
+.zone-list { display: flex; flex-direction: column; border-top: 1px solid var(--line); }
+.zone-row { display: grid; grid-template-columns: minmax(0,1fr) auto auto; gap: 10px; align-items: center; padding: 7px 0; border-bottom: 1px solid var(--line); font-size: 0.86rem; }
+.zone-row .zn { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.zone-row .zk { font-family: var(--font-mono); font-size: 0.68rem; color: var(--dim); font-variant-numeric: tabular-nums; }
+.switch { position: relative; width: 38px; height: 20px; flex: none; border: 1px solid var(--line); background: rgba(255,56,100,0.15); transition: background-color .2s, border-color .2s; cursor: pointer; }
+.switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; background: var(--danger); transition: transform .2s, background-color .2s, box-shadow .2s; }
+.switch[aria-checked="true"] { background: rgba(61,255,110,0.14); border-color: rgba(61,255,110,0.5); }
+.switch[aria-checked="true"]::after { transform: translateX(18px); background: var(--venom); box-shadow: 0 0 8px var(--venom); }
+
+.slider-row { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 4px 10px; align-items: center; }
+.slider-row label { font-size: 0.84rem; color: var(--muted); }
+.slider-row output { font-family: var(--font-mono); font-size: 0.78rem; color: var(--fg); font-variant-numeric: tabular-nums; }
+.slider-row input { grid-column: 1 / -1; }
+input[type="range"] { -webkit-appearance: none; appearance: none; width: 100%; min-width: 0; height: 22px; background: transparent; cursor: pointer; }
+input[type="range"]::-webkit-slider-runnable-track { height: 4px; background: linear-gradient(90deg, var(--cyan) var(--pct, 50%), rgba(255,255,255,0.1) var(--pct, 50%)); }
+input[type="range"]::-moz-range-track { height: 4px; background: rgba(255,255,255,0.1); }
+input[type="range"]::-moz-range-progress { height: 4px; background: var(--cyan); }
+input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; width: 12px; height: 16px; margin-top: -6px; background: var(--fg); border: 2px solid var(--cyan); box-shadow: 0 0 10px var(--cyan); transition: transform .12s; }
+input[type="range"]::-moz-range-thumb { width: 10px; height: 14px; border-radius: 0; background: var(--fg); border: 2px solid var(--cyan); box-shadow: 0 0 10px var(--cyan); }
+input[type="range"]:hover::-webkit-slider-thumb { transform: scale(1.2); }
+
+.riders { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+@media (max-width: 1279px) and (min-width: 761px) { .riders { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 480px) { .riders { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.rider { padding: 8px 10px; border: 1px solid var(--line); background: rgba(0,0,0,0.22); min-width: 0; }
+.rider .rn { font-family: var(--font-display); font-weight: 600; font-size: 0.86rem; display: flex; align-items: center; gap: 6px; }
+.rider .rp { font-family: var(--font-mono); font-size: 0.64rem; color: var(--dim); }
+.rider .rs { font-family: var(--font-mono); font-size: 0.68rem; margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rs.idle { color: var(--venom); } .rs.out { color: var(--cyan); } .rs.back { color: var(--muted); }
+
+/* ---------- Command bar ---------- */
+.cmd { position: relative; }
+.cmd .field { width: 100%; padding-left: 36px; padding-right: 54px; font-family: var(--font-mono); font-size: 0.84rem; }
+.cmd svg { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); width: 16px; height: 16px; color: var(--dim); }
+.kbd { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); font-family: var(--font-mono); font-size: 0.66rem; color: var(--dim); border: 1px solid var(--line); padding: 1px 5px; }
+.field { padding: 9px 12px; background: rgba(0,0,0,0.35); border: 1px solid var(--line); color: var(--fg); font-family: var(--font-body); font-size: 0.92rem; transition: border-color .15s, box-shadow .15s; }
+.field::placeholder { color: var(--dim); }
+.field:focus { border-color: var(--line-hot); box-shadow: 0 0 12px rgba(0,240,255,0.18); outline: none; }
+.actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.action { justify-content: flex-start; padding: 11px 12px; text-align: left; font-size: 0.8rem; }
+.action svg { color: var(--cyan); }
+.action.warn svg { color: var(--warn); }
+.action .hint { margin-left: auto; font-family: var(--font-mono); font-size: 0.62rem; color: var(--dim); }
+.empty-cmd { grid-column: 1 / -1; font-family: var(--font-mono); font-size: 0.78rem; color: var(--muted); padding: 10px 2px; }
+.menu86 { display: flex; flex-wrap: wrap; gap: 6px; }
+.menu-chip { padding: 6px 10px; font-size: 0.78rem; border: 1px solid var(--line); background: rgba(255,255,255,0.03); transition: all .15s; display: inline-flex; gap: 6px; align-items: baseline; }
+.menu-chip span { font-family: var(--font-mono); font-size: 0.66rem; color: var(--dim); }
+.menu-chip:hover { border-color: var(--line-hot); background: rgba(0,240,255,0.06); }
+.menu-chip:active { transform: scale(0.96); }
+.menu-chip[aria-pressed="true"] { border-color: var(--danger); color: var(--danger); text-decoration: line-through; background: rgba(255,56,100,0.08); }
+.menu-chip[aria-pressed="true"] span { color: var(--danger); }
+
+/* ---------- Toasts ---------- */
+.toasts { position: fixed; z-index: 50; display: flex; flex-direction: column; gap: 8px; align-items: flex-end; right: max(16px, env(safe-area-inset-right, 0px)); bottom: calc(16px + env(safe-area-inset-bottom, 0px)); max-width: calc(100vw - 32px); pointer-events: none; }
+.toast { padding: 10px 14px; background: rgba(20,22,30,0.95); border: 1px solid var(--line-hot); box-shadow: 0 0 20px rgba(0,240,255,0.2); font-size: 0.86rem; animation: slideIn .25s ease-out; transition: opacity .3s, transform .3s; }
+.toast .kind { font-family: var(--font-mono); font-size: 0.64rem; letter-spacing: 0.12em; color: var(--cyan); margin-right: 8px; text-transform: uppercase; }
+.toast.out { opacity: 0; transform: translateX(12px); }
+footer { font-family: var(--font-mono); font-size: 0.7rem; color: var(--dim); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
+}
+</style>
+
+<!-- ═════════════════════════════ HEADER ═════════════════════════════ -->
+<header class="topbar">
+  <div class="gutter py-3 flex flex-wrap items-center justify-between gap-3 max-w-[1600px] mx-auto">
+    <div class="flex items-center gap-3 min-w-0">
+      <div class="brandmark" aria-hidden="true">HD</div>
+      <div class="min-w-0">
+        <div class="ws-name">HyDeck <em>Core</em> v1.0</div>
+        <!-- API: GET /api/v1/workspace → { kitchenName, city, timezone } -->
+        <div class="ws-sub">Local Food Grid · Dapur Kedah, Alor Setar</div>
+      </div>
+    </div>
+    <div class="status-row" aria-label="Kitchen status">
+      <span class="state-pill" id="state-pill"><span class="dot"></span><span id="state-text">KITCHEN OPEN</span></span>
+      <span class="chip">Queue <b id="h-queue">0</b></span>
+      <span class="chip"><span class="dot ok" id="h-rider-dot"></span>Riders free <b id="h-riders">0/6</b></span>
+      <span class="chip">Quoted <b id="h-quote">20 min</b></span>
+      <span class="chip"><span class="dot warn"></span>Light rain · <b>Jitra</b></span>
+      <span class="chip">MYT <b id="clock">--:--</b></span>
+    </div>
+  </div>
+</header>
+
+<!-- ═════════════════════════════ DECK ═════════════════════════════ -->
+<main class="gutter max-w-[1600px] mx-auto" style="padding-block: 20px 28px;">
+  <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-12 gap-4">
+
+    <!-- ── 1. Order board ── -->
+    <section class="panel md:col-span-2 xl:col-span-8" aria-labelledby="t-board">
+      <div class="panel-head">
+        <div>
+          <h2 class="panel-title" id="t-board">Kitchen Order Board</h2>
+          <div class="panel-tag">Demo clock runs 20× faster</div>
+        </div>
+        <div class="seg" role="group" aria-label="Show orders">
+          <button type="button" data-type="all" aria-pressed="true">ALL</button>
+          <button type="button" data-type="delivery" aria-pressed="false">DELIVERY</button>
+          <button type="button" data-type="pickup" aria-pressed="false">PICKUP</button>
+        </div>
+      </div>
+      <div class="panel-body">
+        <div class="kpis">
+          <div class="kpi"><div class="kpi-label">Open orders</div><div class="kpi-value" id="k-open">0</div><div class="kpi-note" id="k-late">0 running late</div></div>
+          <div class="kpi"><div class="kpi-label">Avg prep</div><div class="kpi-value" id="k-prep">0<small> min</small></div><div class="kpi-note">last 10 tickets</div></div>
+          <div class="kpi"><div class="kpi-label">Delivered today</div><div class="kpi-value" id="k-done">0</div><div class="kpi-note" id="k-ontime">on time</div></div>
+          <div class="kpi"><div class="kpi-label">Sales today</div><div class="kpi-value" id="k-sales"><small>RM</small>0</div><div class="kpi-note">incl. delivery fees</div></div>
+        </div>
+        <div class="board" id="board"></div>
+      </div>
+    </section>
+
+    <!-- ── 2. Dispatch feed ── -->
+    <section class="panel purple xl:col-span-4" aria-labelledby="t-feed">
+      <div class="panel-head">
+        <div>
+          <h2 class="panel-title" id="t-feed">Dispatch Feed</h2>
+          <div class="panel-tag">Orders · kitchen · riders</div>
+        </div>
+        <button type="button" class="btn" id="feed-pause" aria-pressed="false">Pause</button>
+      </div>
+      <div class="feed-filter" role="group" aria-label="Filter feed" id="feed-filter"></div>
+      <div class="feed" id="feed" aria-live="polite"></div>
+    </section>
+
+    <!-- ── 3. Zone & kitchen control ── -->
+    <section class="panel venom md:col-span-2 xl:col-span-7" aria-labelledby="t-zones">
+      <div class="panel-head">
+        <div>
+          <h2 class="panel-title" id="t-zones">Zones &amp; Riders</h2>
+          <div class="panel-tag">Kota Setar · Kubang Pasu · Pendang</div>
+        </div>
+        <span class="chip">Tap a zone to pause it</span>
+      </div>
+      <div class="panel-body">
+        <div class="zone-layout">
+          <div class="map-box">
+            <svg id="map" role="img" aria-label="Map of delivery zones around Alor Setar with live rider positions"></svg>
+            <div class="map-legend">
+              <span><i class="lg" style="background:var(--venom)"></i>Kitchen / free</span>
+              <span><i class="lg" style="background:var(--cyan)"></i>Delivering</span>
+              <span><i class="lg" style="background:var(--muted)"></i>Returning</span>
+              <span><i class="lg" style="background:var(--danger)"></i>Paused zone</span>
+            </div>
+          </div>
+          <div class="flex flex-col gap-4 min-w-0">
+            <div>
+              <div class="sub-label">Delivery zones</div>
+              <div class="zone-list" id="zone-list"></div>
+            </div>
+            <div class="flex flex-col gap-3">
+              <div class="sub-label" style="margin-bottom:0">Kitchen settings</div>
+              <!-- API: PATCH /api/v1/kitchen/settings { capacity, quotedPrepMin, deliveryFee } -->
+              <div class="slider-row"><label for="s-cap">Cooking at once</label><output id="o-cap" for="s-cap">4 tickets</output><input type="range" id="s-cap" min="1" max="8" step="1" value="4"></div>
+              <div class="slider-row"><label for="s-prep">Quoted prep time</label><output id="o-prep" for="s-prep">20 min</output><input type="range" id="s-prep" min="10" max="40" step="5" value="20"></div>
+              <div class="slider-row"><label for="s-fee">Delivery fee</label><output id="o-fee" for="s-fee">RM 4.00</output><input type="range" id="s-fee" min="2" max="8" step="0.5" value="4"></div>
+            </div>
+          </div>
+        </div>
+        <div>
+          <div class="sub-label">Rider roster</div>
+          <div class="riders" id="riders"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── 4. Command bar ── -->
+    <section class="panel md:col-span-2 xl:col-span-5" aria-labelledby="t-cmd">
+      <div class="panel-head">
+        <div>
+          <h2 class="panel-title" id="t-cmd">Quick Actions</h2>
+          <div class="panel-tag">Command bar · Ctrl K</div>
+        </div>
+      </div>
+      <div class="panel-body">
+        <div class="cmd">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M5 7l5 5-5 5M12 19h7"/></svg>
+          <label for="cmd-input" class="sr-only">Search commands</label>
+          <input class="field" id="cmd-input" placeholder="Type a command…  Enter to run">
+          <span class="kbd" aria-hidden="true">Ctrl K</span>
+        </div>
+        <div class="actions" id="actions"></div>
+        <div>
+          <div class="sub-label">Sold out today · tap to mark</div>
+          <!-- API: PUT /api/v1/menu/{itemId} { available } → pushed to GrabFood / foodpanda / own app -->
+          <div class="menu86" id="menu86"></div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <footer class="mt-6 flex flex-wrap justify-between gap-2">
+    <span>HyDeck Core v1.0 · Local Food Grid · example orders, riders and customers, simulated locally</span>
+    <span>Hyper Tech Widget</span>
+  </footer>
+</main>
+
+<div class="toasts" id="toasts" aria-live="polite"></div>
+
+<script>
+/* ════════════════════════════════════════════════════════════════════════════
+   HyDeck Local Food Grid — client architecture
+   ────────────────────────────────────────────────────────────────────────────
+     [ Source ] ──emit──▶ [ Bus ] ──▶ [ Store ] ──▶ [ Widgets render ]
+         ▲                                              │
+         └──────────── Api.action(id, payload) ◀── staff taps ─┘
+
+   • Source: `MockSource` (bottom of file) invents orders and moves riders.
+     In production it is replaced by one WebSocket to the HyDeck backend:
+        wss://api.hydeck.app/v1/kitchen/<kitchenId>/stream
+     The backend merges orders from the shop's own app, GrabFood and foodpanda
+     webhooks, plus rider GPS pings from the rider app, and sends events like:
+        { type: "order.created",   order: Order }
+        { type: "order.updated",   id, status, riderId? }
+        { type: "rider.location",  riderId, lat, lon, ts }
+        { type: "rider.delivered", riderId, orderId, ts }
+   • Order shape (also the body of POST /api/v1/orders):
+        { id, customer, type: "delivery"|"pickup"|"walkin", zoneId,
+          items: [{ menuId, name, qty, price }], note, fee, total,
+          status: "new"|"cooking"|"ready"|"out"|"done",
+          placedAt, cookStartedAt, readyAt, riderId }
+   • Api: every staff action calls Api.action(). Today it resolves locally.
+     Swap in:  POST /api/v1/actions/{id}  (Authorization: Bearer <staff token>)
+     The UI changes first (optimistic) and the WebSocket echo confirms it.
+   ════════════════════════════════════════════════════════════════════════════ */
+
+const SIM = 20; // demo seconds per real second. Set to 1 when real data flows in.
+
+/* ---------- Bus ---------- */
+const Bus = (() => {
+  const h = {};
+  return { on: (t, f) => (h[t] ||= []).push(f), emit: (t, d) => (h[t] || []).forEach(f => f(d)) };
+})();
+
+/* ---------- Reference data (GET /api/v1/zones, /api/v1/menu, /api/v1/riders) ---------- */
+const HUB = { name: "Dapur Kedah", lat: 6.1210, lon: 100.3680 };
+const ZONES = [
+  { id: "AS", name: "Alor Setar",   lat: 6.1248, lon: 100.3678, weight: 6, open: true, district: "Kota Setar" },
+  { id: "AB", name: "Anak Bukit",   lat: 6.1840, lon: 100.3700, weight: 3, open: true, district: "Kota Setar" },
+  { id: "KB", name: "Kepala Batas", lat: 6.2050, lon: 100.4030, weight: 2, open: true, district: "Kota Setar" },
+  { id: "JT", name: "Jitra",        lat: 6.2680, lon: 100.4210, weight: 4, open: true, district: "Kubang Pasu" },
+  { id: "KK", name: "Kuala Kedah",  lat: 6.1000, lon: 100.2960, weight: 2, open: true, district: "Kota Setar" },
+  { id: "PD", name: "Pendang",      lat: 5.9930, lon: 100.4770, weight: 1, open: false, district: "Pendang" },
+];
+const MENU = [
+  { id: "nl",  name: "Nasi Lemak Ayam", price: 9.5 },
+  { id: "ma",  name: "Mee Abu",         price: 7.0 },
+  { id: "lk",  name: "Laksa Kedah",     price: 8.0 },
+  { id: "nk",  name: "Nasi Kandar",     price: 12.5 },
+  { id: "rc",  name: "Roti Canai (2)",  price: 3.2 },
+  { id: "ckt", name: "Char Kuey Teow",  price: 9.0 },
+  { id: "ps",  name: "Pasembur",        price: 8.5 },
+  { id: "tt",  name: "Teh Tarik",       price: 2.8 },
+  { id: "ab",  name: "Air Bandung",     price: 3.0 },
+];
+const RIDERS = [
+  { id: "r1", name: "Faiz",      plate: "KDE 4821" },
+  { id: "r2", name: "Aina",      plate: "KCV 1093" },
+  { id: "r3", name: "Rajes",     plate: "KEA 7740" },
+  { id: "r4", name: "Wei Liang", plate: "KDN 2265" },
+  { id: "r5", name: "Syafiq",    plate: "KDB 9012" },
+  { id: "r6", name: "Hakim",     plate: "KEC 3358" },
+].map(r => ({ ...r, state: "idle", orderId: null, trip: null, lat: HUB.lat, lon: HUB.lon }));
+
+/* ---------- Store ---------- */
+const Store = {
+  orders: [],
+  riders: RIDERS,
+  zones: ZONES,
+  soldOut: new Set(["ps"]),
+  capacity: 4, quotedPrep: 20, fee: 4,
+  rush: false, autopilot: true,
+  filter: "all",
+  delivered: 38, onTime: 35, sales: 1284.6,
+  prepSamples: [14, 17, 12, 19, 16, 15, 21, 13, 18, 16], // sim minutes
+  nextId: 1042,
+};
+
+/* ---------- Api ---------- */
+const Api = {
+  // return fetch(`/api/v1/actions/${id}`, { method: "POST", headers: {...}, body: JSON.stringify(payload) }).then(r => r.json());
+  action(id, payload = {}) { return new Promise(r => setTimeout(() => r({ ok: true, id, payload }), 100)); },
+};
+
+/* ---------- Helpers ---------- */
+const $ = s => document.querySelector(s);
+const rand = (a, b) => a + Math.random() * (b - a);
+const pick = a => a[Math.floor(Math.random() * a.length)];
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const pad2 = n => String(n).padStart(2, "0");
+const rm = n => n.toLocaleString("en-MY", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+const simMin = ms => (ms * SIM) / 60000;                       // real ms → demo minutes
+const realMs = min => (min * 60000) / SIM;                     // demo minutes → real ms
+const km = (a, b) => Math.hypot((a.lat - b.lat) * 111, (a.lon - b.lon) * 111 * Math.cos(a.lat * Math.PI / 180));
+const zoneById = id => Store.zones.find(z => z.id === id);
+const mmss = min => `${Math.floor(min)}:${pad2(Math.floor((min % 1) * 60))}`;
+const mytTime = (withSec) => new Date().toLocaleTimeString("en-GB", { timeZone: "Asia/Kuala_Lumpur", hour: "2-digit", minute: "2-digit", second: withSec ? "2-digit" : undefined });
+
+const ICONS = {
+  plus:   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>',
+  bolt:   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></svg>',
+  bike:   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="5.5" cy="17" r="3.5"/><circle cx="18.5" cy="17" r="3.5"/><path d="M5.5 17l4-8h5l4 8M9 9l-1-3H6M14.5 9l2-3h2"/></svg>',
+  pause:  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="5" width="4" height="14"/><rect x="14" y="5" width="4" height="14"/></svg>',
+  up:     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19V5M5 12l7-7 7 7"/></svg>',
+  radio:  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 10a12 12 0 0116 0M7 13.5a7.5 7.5 0 0110 0"/><circle cx="12" cy="17" r="1.6" fill="currentColor"/></svg>',
+  auto:   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 12a8 8 0 11-2.3-5.7M20 4v5h-5"/></svg>',
+  report: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 20h16M7 16v-5M12 16V7M17 16v-8"/></svg>',
+};
+
+function toast(kind, text) {
+  const el = document.createElement("div");
+  el.className = "toast";
+  el.innerHTML = `<span class="kind">${esc(kind)}</span>${esc(text)}`;
+  $("#toasts").append(el);
+  setTimeout(() => { el.classList.add("out"); setTimeout(() => el.remove(), 320); }, 2600);
+}
+
+document.addEventListener("pointerdown", e => {
+  const b = e.target.closest(".btn");
+  if (!b || b.disabled || reduceMotion) return;
+  const r = b.getBoundingClientRect(), size = Math.max(r.width, r.height) * 2;
+  const s = document.createElement("span");
+  s.className = "ripple";
+  s.style.cssText = `width:${size}px;height:${size}px;left:${e.clientX - r.left - size / 2}px;top:${e.clientY - r.top - size / 2}px`;
+  b.append(s); setTimeout(() => s.remove(), 600);
+});
+
+/* ════════════════════ Order logic (shared by board, autopilot and commands) ════════════════════ */
+const Orders = {
+  cookingCount: () => Store.orders.filter(o => o.status === "cooking").length,
+  freeRider: () => Store.riders.find(r => r.state === "idle"),
+
+  create({ zoneId, type = "delivery", walkin = false, ageMin = 0 }) {
+    const avail = MENU.filter(m => !Store.soldOut.has(m.id));
+    if (!avail.length) return null;
+    const lines = [];
+    const n = Math.random() < 0.5 ? 1 : Math.random() < 0.7 ? 2 : 3;
+    for (let i = 0; i < n; i++) {
+      const m = pick(avail), ex = lines.find(l => l.menuId === m.id);
+      ex ? ex.qty++ : lines.push({ menuId: m.id, name: m.name, qty: Math.random() < 0.25 ? 2 : 1, price: m.price });
+    }
+    if (Math.random() < 0.6 && !Store.soldOut.has("tt")) lines.push({ menuId: "tt", name: "Teh Tarik", qty: 1, price: 2.8 });
+    const fee = type === "delivery" ? Store.fee : 0;
+    const order = {
+      id: `KD-${Store.nextId++}`,
+      customer: pick(["Aisyah", "Hafiz", "Mei Ling", "Kumar", "Nurul", "Danish", "Farah", "Arjun", "Zul", "Siti"]),
+      type: walkin ? "walkin" : type, zoneId: type === "delivery" ? zoneId : null,
+      items: lines, fee,
+      total: lines.reduce((s, l) => s + l.qty * l.price, 0) + fee,
+      note: Math.random() < 0.3 ? pick(["Kurang pedas", "No ice in the drink", "Extra sambal", "Bungkus asing", "Call at the gate"]) : "",
+      status: "new", placedAt: Date.now() - realMs(ageMin), stageAt: Date.now() - realMs(ageMin), riderId: null,
+    };
+    Store.orders.push(order);
+    Bus.emit("order.created", order);
+    return order;
+  },
+
+  // Advance one step. Returns a reason string when it can't.
+  advance(o, by = "staff") {
+    if (o.status === "new") {
+      if (Orders.cookingCount() >= Store.capacity) return "Kitchen is at capacity. Raise “Cooking at once” or finish a ticket.";
+      o.status = "cooking"; o.cookStartedAt = Date.now(); o.stageAt = Date.now();
+      Bus.emit("log", { k: "kitchen", text: `${o.id} started cooking${by === "auto" ? "" : " (staff)"}` });
+    } else if (o.status === "cooking") {
+      o.status = "ready"; o.stageAt = Date.now();
+      const prep = simMin(Date.now() - o.cookStartedAt);
+      Store.prepSamples.push(prep); Store.prepSamples = Store.prepSamples.slice(-10);
+      Bus.emit("log", { k: "kitchen", text: `${o.id} is ready · ${prep.toFixed(0)} min on the line` });
+    } else if (o.status === "ready" && o.type === "delivery") {
+      const r = Orders.freeRider();
+      if (!r) return "All riders are on the road. The order stays ready until one returns.";
+      Riders.dispatch(r, o);
+    } else if (o.status === "ready") {
+      o.status = "done"; Store.sales += o.total;
+      Bus.emit("log", { k: "done", text: `${o.id} collected by ${o.customer} at the counter` });
+      setTimeout(() => Orders.remove(o), 400);
+    }
+    Api.action("order.advance", { id: o.id, status: o.status });
+    Bus.emit("orders.changed");
+    return null;
+  },
+
+  remove(o) { Store.orders = Store.orders.filter(x => x !== o); Bus.emit("orders.changed"); },
+
+  sla(o) {
+    // Age vs the quoted prep time drives the coloured stripe on each ticket.
+    const age = simMin(Date.now() - o.placedAt), q = Store.quotedPrep;
+    if (o.status === "out") return { age, cls: "" };
+    return { age, cls: age > q ? "sla-late" : age > q * 0.7 ? "sla-warn" : "" };
+  },
+};
+
+/* ════════════════════ Riders: trips and positions ════════════════════ */
+const Riders = {
+  dispatch(r, o) {
+    const z = zoneById(o.zoneId);
+    // Drop-off point: somewhere inside the zone, not the exact town centre.
+    const dest = { lat: z.lat + rand(-0.008, 0.008), lon: z.lon + rand(-0.008, 0.008) };
+    const dist = km(HUB, dest);
+    const mins = (dist / 32) * 60 + 3;                 // 32 km/h average on a kapcai + 3 min handover
+    r.state = "out"; r.orderId = o.id;
+    r.trip = { from: { lat: HUB.lat, lon: HUB.lon }, to: dest, t0: Date.now(), dur: realMs(mins), km: dist, mins };
+    o.status = "out"; o.riderId = r.id; o.stageAt = Date.now(); o.etaMin = mins;
+    Bus.emit("log", { k: "rider", text: `${r.name} (${r.plate}) picked up ${o.id} → ${z.name}, ${dist.toFixed(1)} km, ETA ${Math.round(mins)} min` });
+    Api.action("rider.assign", { riderId: r.id, orderId: o.id });
+  },
+  tick() {
+    const now = Date.now();
+    let changed = false;
+    for (const r of Store.riders) {
+      if (!r.trip) continue;
+      const p = clamp((now - r.trip.t0) / r.trip.dur, 0, 1);
+      r.lat = r.trip.from.lat + (r.trip.to.lat - r.trip.from.lat) * p;
+      r.lon = r.trip.from.lon + (r.trip.to.lon - r.trip.from.lon) * p;
+      if (p < 1) continue;
+      changed = true;
+      if (r.state === "out") {
+        const o = Store.orders.find(x => x.id === r.orderId);
+        if (o) {
+          const total = simMin(now - o.placedAt);
+          const ontime = total <= Store.quotedPrep + o.etaMin + 5;
+          Store.delivered++; if (ontime) Store.onTime++; Store.sales += o.total;
+          o.status = "done";
+          Bus.emit("log", { k: "done", text: `${r.name} delivered ${o.id} to ${o.customer} in ${zoneById(o.zoneId).name} · ${Math.round(total)} min door to door${ontime ? "" : " (late)"}` });
+          setTimeout(() => Orders.remove(o), 400);
+        }
+        r.state = "back"; r.orderId = null;
+        r.trip = { from: { lat: r.lat, lon: r.lon }, to: { lat: HUB.lat, lon: HUB.lon }, t0: now, dur: r.trip.dur * 0.85 };
+      } else {
+        r.state = "idle"; r.trip = null; r.lat = HUB.lat; r.lon = HUB.lon;
+        Bus.emit("log", { k: "rider", text: `${r.name} is back at the kitchen and free` });
+      }
+    }
+    if (changed) Bus.emit("orders.changed");
+  },
+};
+
+/* ════════════════════ Widget 1: Order board ════════════════════ */
+const Board = (() => {
+  const COLS = [
+    { id: "new", label: "New", cls: "c-new" },
+    { id: "cooking", label: "Cooking", cls: "c-cooking" },
+    { id: "ready", label: "Ready", cls: "c-ready" },
+    { id: "out", label: "On the road", cls: "c-out" },
+  ];
+  const board = $("#board");
+  board.innerHTML = COLS.map(c => `
+    <div class="col ${c.cls}"><div class="col-head"><span>${c.label}</span><span class="count" id="cnt-${c.id}">0</span></div>
+    <div class="col-list" id="col-${c.id}"></div></div>`).join("");
+
+  function actionFor(o) {
+    if (o.status === "new") {
+      const full = Orders.cookingCount() >= Store.capacity;
+      return `<button type="button" class="btn t-btn" data-adv="${o.id}" ${full ? "disabled" : ""}>${full ? "Kitchen full" : "Start cooking"}</button>`;
+    }
+    if (o.status === "cooking") return `<button type="button" class="btn t-btn" data-adv="${o.id}">Mark ready</button>`;
+    if (o.status === "ready" && o.type === "delivery") {
+      const free = !!Orders.freeRider();
+      return `<button type="button" class="btn t-btn" data-adv="${o.id}" ${free ? "" : "disabled"}>${free ? "Send rider" : "No rider free"}</button>`;
+    }
+    if (o.status === "ready") return `<button type="button" class="btn t-btn" data-adv="${o.id}">Collected</button>`;
+    const r = Store.riders.find(x => x.id === o.riderId);
+    return `<span class="t-rider">${r ? esc(r.name) : "Rider"} · <span data-eta="${o.id}"></span></span>`;
+  }
+
+  function ticket(o) {
+    const z = o.zoneId ? zoneById(o.zoneId) : null;
+    const typeTag = o.type === "delivery" ? `<span class="tag zone">${esc(z.name)}</span>`
+      : o.type === "walkin" ? `<span class="tag walkin">Walk-in</span>` : `<span class="tag pickup">Pickup</span>`;
+    return `<article class="ticket" data-id="${o.id}">
+      <div class="t-top"><span class="t-id">#${o.id}</span><span class="t-age" data-age="${o.id}"></span></div>
+      <div class="t-meta">${typeTag}<span>${esc(o.customer)}</span></div>
+      <ul class="t-items">${o.items.map(l => `<li><b>${l.qty}×</b>${esc(l.name)}</li>`).join("")}</ul>
+      ${o.note ? `<div class="t-note">“${esc(o.note)}”</div>` : ""}
+      <div class="t-foot"><span class="t-total">RM ${rm(o.total)}</span>${actionFor(o)}</div>
+    </article>`;
+  }
+
+  // Full render only when orders change. Timers update in place every second (see tickTimers),
+  // so buttons are never replaced under the cursor mid-click.
+  function render() {
+    const visible = Store.orders.filter(o => o.status !== "done" && (Store.filter === "all"
+      || (Store.filter === "delivery" ? o.type === "delivery" : o.type !== "delivery")));
+    for (const c of COLS) {
+      const list = visible.filter(o => o.status === c.id).sort((a, b) => a.placedAt - b.placedAt);
+      $(`#cnt-${c.id}`).textContent = list.length;
+      const el = $(`#col-${c.id}`);
+      // Keep existing ticket nodes when only the button state changes, to avoid re-playing the slide-in.
+      el.innerHTML = list.length ? list.map(ticket).join("") : `<div class="col-empty">${c.id === "new" ? (Store.rush ? "Rush mode: intake paused" : "Waiting for orders") : "Nothing here"}</div>`;
+      el.querySelectorAll(".ticket").forEach(t => { if (seen.has(t.dataset.id)) t.style.animation = "none"; else seen.add(t.dataset.id); });
+    }
+    tickTimers(); renderKpis();
+  }
+  const seen = new Set();
+
+  function tickTimers() {
+    for (const o of Store.orders) {
+      const t = board.querySelector(`.ticket[data-id="${o.id}"]`);
+      if (!t) continue;
+      const { age, cls } = Orders.sla(o);
+      t.classList.remove("sla-warn", "sla-late"); if (cls) t.classList.add(cls);
+      const a = t.querySelector("[data-age]"); if (a) a.textContent = mmss(age);
+      const eta = t.querySelector("[data-eta]");
+      if (eta) { const left = Math.max(0, o.etaMin - simMin(Date.now() - o.stageAt)); eta.textContent = left < 1 ? "arriving" : `${Math.ceil(left)} min away`; }
+    }
+  }
+
+  function renderKpis() {
+    const open = Store.orders.filter(o => o.status !== "done");
+    $("#k-open").textContent = open.length;
+    const late = open.filter(o => Orders.sla(o).cls === "sla-late").length;
+    $("#k-late").textContent = `${late} running late`;
+    $("#k-late").style.color = late ? "var(--danger)" : "";
+    const avg = Store.prepSamples.reduce((a, b) => a + b, 0) / Store.prepSamples.length;
+    $("#k-prep").innerHTML = `${avg.toFixed(1)}<small> min</small>`;
+    $("#k-done").textContent = Store.delivered;
+    $("#k-ontime").textContent = `${Math.round((Store.onTime / Store.delivered) * 100)}% on time`;
+    $("#k-sales").innerHTML = `<small>RM</small>${rm(Store.sales)}`;
+  }
+
+  board.addEventListener("click", async e => {
+    const b = e.target.closest("[data-adv]"); if (!b) return;
+    const o = Store.orders.find(x => x.id === b.dataset.adv); if (!o) return;
+    const err = Orders.advance(o, "staff");
+    if (err) toast("Blocked", err);
+  });
+
+  document.querySelectorAll("[data-type]").forEach(b => b.addEventListener("click", () => {
+    Store.filter = b.dataset.type;
+    document.querySelectorAll("[data-type]").forEach(x => x.setAttribute("aria-pressed", x === b));
+    render();
+  }));
+
+  Bus.on("orders.changed", render);
+  Bus.on("order.created", o => { render(); const t = board.querySelector(`.ticket[data-id="${o.id}"]`); if (t) { t.classList.add("flash"); setTimeout(() => t.classList.remove("flash"), 1200); } });
+  setInterval(() => { tickTimers(); renderKpis(); }, 1000);
+  return { render };
+})();
+
+/* ════════════════════ Widget 2: Dispatch feed ════════════════════ */
+const Feed = (() => {
+  const feed = $("#feed");
+  const KINDS = [["all", "All"], ["order", "Orders"], ["kitchen", "Kitchen"], ["rider", "Riders"], ["alert", "Alerts"]];
+  let filter = "all", paused = false, queued = [];
+  $("#feed-filter").innerHTML = KINDS.map(([k, l]) => `<button type="button" class="chip-btn" data-k="${k}" aria-pressed="${k === "all"}">${l}</button>`).join("");
+
+  function line({ k, text, at = mytTime() }) {
+    const el = document.createElement("div");
+    el.className = "log"; el.dataset.k = k;
+    el.innerHTML = `<time>${at}</time><span class="k k-${k}">${k === "done" ? "done" : k}</span><span class="txt">${esc(text)}</span>`;
+    el.hidden = !matches(k);
+    return el;
+  }
+  const matches = k => filter === "all" || k === filter || (filter === "rider" && k === "done");
+  function push(entry) {
+    if (paused) { queued.push(entry); $("#feed-pause").textContent = `Resume (${queued.length})`; return; }
+    feed.prepend(line(entry));
+    while (feed.children.length > 80) feed.lastChild.remove();
+  }
+  $("#feed-filter").addEventListener("click", e => {
+    const b = e.target.closest("[data-k]"); if (!b) return;
+    filter = b.dataset.k;
+    document.querySelectorAll("#feed-filter [data-k]").forEach(x => x.setAttribute("aria-pressed", x === b));
+    feed.querySelectorAll(".log").forEach(l => l.hidden = !matches(l.dataset.k));
+  });
+  $("#feed-pause").addEventListener("click", e => {
+    paused = !paused;
+    const b = e.currentTarget;
+    b.classList.toggle("is-on", paused); b.setAttribute("aria-pressed", paused);
+    if (!paused) { queued.forEach(push); queued = []; b.textContent = "Pause"; } else b.textContent = "Resume (0)";
+  });
+
+  Bus.on("log", push);
+  Bus.on("order.created", o => push({ k: "order", text: o.type === "delivery"
+    ? `New order ${o.id} from ${o.customer}, ${zoneById(o.zoneId).name} · RM ${rm(o.total)}`
+    : `New ${o.type === "walkin" ? "walk-in" : "pickup"} order ${o.id} for ${o.customer} · RM ${rm(o.total)}` }));
+  return { push };
+})();
+
+/* ════════════════════ Widget 3: Zones, map, sliders, riders ════════════════════ */
+const Zones = (() => {
+  const svg = $("#map");
+  // Equal-scale projection: 1 unit = 1/1000 degree (≈111 m). Bounds cover all six zones.
+  const B = { lonMin: 100.262, lonMax: 100.505, latMin: 5.965, latMax: 6.300 };
+  const W = (B.lonMax - B.lonMin) * 1000, H = (B.latMax - B.latMin) * 1000;
+  const X = lon => (lon - B.lonMin) * 1000, Y = lat => (B.latMax - lat) * 1000;
+  svg.setAttribute("viewBox", `0 0 ${W.toFixed(0)} ${H.toFixed(0)}`);
+  const NS = "http://www.w3.org/2000/svg";
+
+  // Static layer: coast, highway, roads to each zone, scale bar, north arrow.
+  const coast = [[6.30, 100.318], [6.22, 100.305], [6.15, 100.300], [6.10, 100.290], [6.04, 100.300], [5.965, 100.312]];
+  const plus = [[6.30, 100.432], [6.268, 100.424], [6.205, 100.408], [6.15, 100.392], [6.12, 100.385], [6.06, 100.405], [5.965, 100.430]]; // E1 North–South Expressway (approx.)
+  const pts = arr => arr.map(([la, lo]) => `${X(lo).toFixed(1)},${Y(la).toFixed(1)}`).join(" ");
+  const scale5 = 5 / (111 * Math.cos(6.1 * Math.PI / 180)) * 1000; // 5 km in map units
+  let html = `
+    <polyline class="coast" points="${pts(coast)}"/>
+    <text class="map-faint" x="${X(100.268)}" y="${Y(6.16)}" transform="rotate(-80 ${X(100.268)} ${Y(6.16)})">SELAT MELAKA</text>
+    <polyline class="highway" points="${pts(plus)}"/>
+    <text class="map-faint" x="${X(100.437) + 4}" y="${Y(6.06)}">E1 PLUS</text>
+    ${ZONES.map(z => `<line class="road" x1="${X(HUB.lon)}" y1="${Y(HUB.lat)}" x2="${X(z.lon)}" y2="${Y(z.lat)}"/>`).join("")}
+    <g transform="translate(${W - 20} 22)"><path d="M0 -12 L5 4 L0 0 L-5 4 Z" style="fill:var(--muted)"/><text class="map-faint" x="0" y="15" text-anchor="middle">N</text></g>
+    <g transform="translate(14 ${H - 14})"><line x1="0" y1="0" x2="${scale5}" y2="0" style="stroke:var(--muted);stroke-width:1.5"/><line x1="0" y1="-4" x2="0" y2="0" style="stroke:var(--muted)"/><line x1="${scale5}" y1="-4" x2="${scale5}" y2="0" style="stroke:var(--muted)"/><text class="map-faint" x="${scale5 / 2}" y="-6" text-anchor="middle">5 km</text></g>
+    <g id="zones-layer"></g>
+    <circle class="hub-ring" cx="${X(HUB.lon)}" cy="${Y(HUB.lat)}" r="9"/>
+    <rect class="hub" x="${X(HUB.lon) - 4}" y="${Y(HUB.lat) - 4}" width="8" height="8" transform="rotate(45 ${X(HUB.lon)} ${Y(HUB.lat)})"/>
+    <g id="riders-layer"></g>`;
+  svg.innerHTML = html;
+
+  const zoneCounts = () => {
+    const c = {}; Store.orders.forEach(o => { if (o.zoneId && o.status !== "done") c[o.zoneId] = (c[o.zoneId] || 0) + 1; }); return c;
+  };
+
+  function renderZones() {
+    const c = zoneCounts();
+    $("#zones-layer").innerHTML = Store.zones.map(z => {
+      const n = c[z.id] || 0, r = 8 + Math.min(n, 6) * 2.2;
+      const labelLeft = z.id === "AB" || z.id === "PD"; // keeps labels inside the map and off neighbouring rings
+      return `<g class="zone-hit" data-zone="${z.id}" tabindex="0" role="button" aria-label="${z.name}, ${z.open ? "open" : "paused"}. Toggle.">
+        <circle class="zone-ring ${z.open ? "" : "paused"}" cx="${X(z.lon)}" cy="${Y(z.lat)}" r="${r}"/>
+        <text class="map-label strong" x="${X(z.lon) + (labelLeft ? -r - 4 : r + 4)}" y="${Y(z.lat) - 1}" text-anchor="${labelLeft ? "end" : "start"}">${z.name.toUpperCase()}</text>
+        <text class="map-label" x="${X(z.lon) + (labelLeft ? -r - 4 : r + 4)}" y="${Y(z.lat) + 10}" text-anchor="${labelLeft ? "end" : "start"}">${z.open ? `${n} open · ${km(HUB, z).toFixed(1)} km` : "PAUSED"}</text>
+      </g>`;
+    }).join("");
+    $("#zone-list").innerHTML = Store.zones.map(z => `
+      <div class="zone-row"><span class="zn">${z.name} <span class="zk">· ${z.district}</span></span>
+      <span class="zk">${c[z.id] || 0} open · ${km(HUB, z).toFixed(1)} km</span>
+      <button type="button" class="switch" role="switch" aria-checked="${z.open}" aria-label="${z.name} accepting orders" data-zone="${z.id}"></button></div>`).join("");
+  }
+
+  function toggleZone(id) {
+    const z = zoneById(id); z.open = !z.open;
+    Bus.emit("log", { k: "alert", text: z.open ? `${z.name} reopened for delivery` : `${z.name} paused. New orders from there are declined.` });
+    toast("Zone", `${z.name} ${z.open ? "open" : "paused"}`);
+    Api.action("zone.toggle", { zoneId: id, open: z.open }); // PATCH /api/v1/zones/{id} { open }
+    renderZones(); Header.render();
+  }
+  svg.addEventListener("click", e => { const g = e.target.closest("[data-zone]"); if (g) toggleZone(g.dataset.zone); });
+  svg.addEventListener("keydown", e => { if ((e.key === "Enter" || e.key === " ") && e.target.dataset.zone) { e.preventDefault(); toggleZone(e.target.dataset.zone); } });
+  $("#zone-list").addEventListener("click", e => { const b = e.target.closest("[data-zone]"); if (b) toggleZone(b.dataset.zone); });
+
+  // Riders: map dots (every animation frame) + roster cards (on change).
+  const riderLayer = $("#riders-layer");
+  riderLayer.innerHTML = Store.riders.map(r => `<circle class="rider-dot" id="rd-${r.id}" r="4.2"></circle>`).join("");
+  function frame() {
+    Riders.tick();
+    let idleIdx = 0;
+    for (const r of Store.riders) {
+      const dot = $(`#rd-${r.id}`);
+      let x = X(r.lon), y = Y(r.lat);
+      if (r.state === "idle") { const a = (idleIdx++ / 6) * Math.PI * 2; x += Math.cos(a) * 14; y += Math.sin(a) * 14; }
+      dot.setAttribute("cx", x.toFixed(1)); dot.setAttribute("cy", y.toFixed(1));
+      dot.style.fill = r.state === "out" ? "var(--cyan)" : r.state === "back" ? "var(--muted)" : "var(--venom)";
+      dot.style.filter = r.state === "out" ? "drop-shadow(0 0 4px var(--cyan))" : "none";
+    }
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+
+  function renderRiders() {
+    $("#riders").innerHTML = Store.riders.map(r => {
+      const o = r.orderId && Store.orders.find(x => x.id === r.orderId);
+      const txt = r.state === "idle" ? "Free at kitchen" : r.state === "out" ? `${o ? o.id + " → " + zoneById(o.zoneId).name : "Delivering"}` : "Returning";
+      const dot = r.state === "idle" ? "ok" : r.state === "out" ? "" : "";
+      return `<div class="rider"><div class="rn"><span class="dot ${dot}" style="${r.state === "out" ? "background:var(--cyan);box-shadow:0 0 8px var(--cyan)" : ""}"></span>${esc(r.name)}</div>
+        <div class="rp">${r.plate}</div><div class="rs ${r.state === "idle" ? "idle" : r.state === "out" ? "out" : "back"}">${esc(txt)}</div></div>`;
+    }).join("");
+  }
+
+  // Sliders
+  function bindSlider(id, out, fmt, key, after) {
+    const s = $(id);
+    const paint = () => s.style.setProperty("--pct", ((s.value - s.min) / (s.max - s.min)) * 100 + "%");
+    s.addEventListener("input", () => {
+      Store[key] = +s.value; $(out).textContent = fmt(+s.value); paint(); after && after();
+    });
+    s.addEventListener("change", () => { Api.action("kitchen.settings", { [key]: Store[key] }); Bus.emit("log", { k: "sys", text: `Setting changed: ${s.labels[0].textContent} → ${fmt(+s.value)}` }); });
+    paint();
+  }
+  bindSlider("#s-cap", "#o-cap", v => `${v} ticket${v > 1 ? "s" : ""}`, "capacity", () => Board.render());
+  bindSlider("#s-prep", "#o-prep", v => `${v} min`, "quotedPrep", () => { Board.render(); Header.render(); });
+  bindSlider("#s-fee", "#o-fee", v => `RM ${rm(v)}`, "fee");
+
+  Bus.on("orders.changed", () => { renderZones(); renderRiders(); });
+  Bus.on("order.created", renderZones);
+  renderZones(); renderRiders();
+  return { renderZones, renderRiders };
+})();
+
+/* ════════════════════ Widget 4: Quick actions ════════════════════ */
+const Actions = (() => {
+  const grid = $("#actions"), input = $("#cmd-input");
+  const ACTIONS = [
+    { id: "walkin", icon: "plus", hint: "N", label: () => "New walk-in order", keys: "new walk in walkin counter order add",
+      run() { const o = Orders.create({ type: "pickup", walkin: true }); o ? toast("Order", `${o.id} added for the counter`) : toast("Blocked", "Every menu item is sold out."); } },
+    { id: "assign", icon: "bike", hint: "A", label: () => "Send all ready orders", keys: "assign dispatch riders send ready auto",
+      run() {
+        const ready = Store.orders.filter(o => o.status === "ready" && o.type === "delivery").sort((a, b) => a.placedAt - b.placedAt);
+        let sent = 0; for (const o of ready) { const r = Orders.freeRider(); if (!r) break; Riders.dispatch(r, o); sent++; }
+        Bus.emit("orders.changed");
+        toast("Dispatch", sent ? `Sent ${sent} rider${sent > 1 ? "s" : ""}` : ready.length ? "No riders free right now" : "No delivery orders are ready");
+      } },
+    { id: "bump", icon: "up", hint: "B", label: () => "Bump oldest ticket", keys: "bump oldest next advance push",
+      run() {
+        const o = Store.orders.filter(x => x.status === "new" || x.status === "cooking").sort((a, b) => a.placedAt - b.placedAt)[0];
+        if (!o) return toast("Board", "No tickets in the kitchen");
+        const err = Orders.advance(o); toast(err ? "Blocked" : "Bumped", err || `${o.id} moved to ${o.status}`);
+      } },
+    { id: "rush", icon: "pause", cls: "warn", on: () => Store.rush, label: () => Store.rush ? "Resume online orders" : "Pause online orders", keys: "rush pause busy stop intake resume",
+      run() {
+        Store.rush = !Store.rush;
+        Bus.emit("log", { k: "alert", text: Store.rush ? "Rush mode on. Online ordering paused on all apps." : "Online ordering resumed." });
+        toast("Kitchen", Store.rush ? "Online orders paused" : "Online orders resumed");
+        Header.render(); Board.render();
+      } },
+    { id: "broadcast", icon: "radio", label: () => "Rain alert to riders", keys: "broadcast message riders rain weather alert",
+      run() { Bus.emit("log", { k: "alert", text: "Broadcast to 6 riders: Hujan di Jitra. Ride slow, keep the food bags closed." }); toast("Broadcast", "Sent to all riders"); } },
+    { id: "autopilot", icon: "auto", on: () => Store.autopilot, label: () => Store.autopilot ? "Autopilot on" : "Autopilot off", keys: "autopilot auto simulate demo",
+      run() { Store.autopilot = !Store.autopilot; toast("Autopilot", Store.autopilot ? "The kitchen runs itself" : "You drive every ticket"); } },
+    { id: "report", icon: "report", label: () => "Shift summary", keys: "report summary shift end day sales",
+      run() { Bus.emit("log", { k: "sys", text: `Shift so far: ${Store.delivered} delivered, ${Math.round(Store.onTime / Store.delivered * 100)}% on time, RM ${rm(Store.sales)} in sales.` }); toast("Report", "Summary posted to the feed"); } },
+  ];
+
+  function render() {
+    const q = input.value.trim().toLowerCase();
+    const list = ACTIONS.filter(a => !q || (a.label() + " " + a.keys).toLowerCase().includes(q));
+    grid.innerHTML = list.length ? list.map(a => {
+      const on = a.on?.();
+      return `<button type="button" class="btn action ${a.cls || ""}${on ? " is-on" : ""}" data-id="${a.id}" aria-pressed="${!!on}">${ICONS[a.icon]}<span>${a.label()}</span>${a.hint ? `<span class="hint">${a.hint}</span>` : ""}</button>`;
+    }).join("") : `<div class="empty-cmd">No command matches “${esc(input.value)}”. Try walk-in, rush or rider.</div>`;
+    return list;
+  }
+  async function run(id) { const a = ACTIONS.find(x => x.id === id); if (!a) return; a.run(); render(); await Api.action(id); }
+
+  grid.addEventListener("click", e => { const b = e.target.closest("[data-id]"); if (b) run(b.dataset.id); });
+  input.addEventListener("input", render);
+  input.addEventListener("keydown", e => {
+    if (e.key === "Enter") { const l = render(); if (l[0]) { run(l[0].id); input.select(); } }
+    if (e.key === "Escape") { input.value = ""; render(); input.blur(); }
+  });
+  document.addEventListener("keydown", e => {
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") { e.preventDefault(); input.focus(); input.select(); return; }
+    if (e.target.closest("input, textarea") || e.ctrlKey || e.metaKey || e.altKey) return;
+    const a = ACTIONS.find(x => x.hint && x.hint.toLowerCase() === e.key.toLowerCase());
+    if (a) run(a.id);
+  });
+
+  // Sold-out (86) board
+  const m86 = $("#menu86");
+  function render86() {
+    m86.innerHTML = MENU.map(m => `<button type="button" class="menu-chip" data-m="${m.id}" aria-pressed="${Store.soldOut.has(m.id)}">${m.name}<span>RM ${rm(m.price)}</span></button>`).join("");
+  }
+  m86.addEventListener("click", e => {
+    const b = e.target.closest("[data-m]"); if (!b) return;
+    const m = MENU.find(x => x.id === b.dataset.m);
+    Store.soldOut.has(m.id) ? Store.soldOut.delete(m.id) : Store.soldOut.add(m.id);
+    const out = Store.soldOut.has(m.id);
+    Bus.emit("log", { k: "alert", text: out ? `${m.name} marked sold out on all apps` : `${m.name} back on the menu` });
+    toast("Menu", `${m.name} ${out ? "sold out" : "available"}`);
+    Api.action("menu.availability", { itemId: m.id, available: !out });
+    render86();
+  });
+
+  render(); render86();
+  return { render };
+})();
+
+/* ════════════════════ Header ════════════════════ */
+const Header = (() => {
+  function render() {
+    const pill = $("#state-pill");
+    pill.classList.toggle("rush", Store.rush);
+    $("#state-text").textContent = Store.rush ? "RUSH · INTAKE PAUSED" : "KITCHEN OPEN";
+    $("#h-queue").textContent = Store.orders.filter(o => o.status === "new" || o.status === "cooking").length;
+    const free = Store.riders.filter(r => r.state === "idle").length;
+    $("#h-riders").textContent = `${free}/${Store.riders.length}`;
+    $("#h-rider-dot").className = "dot " + (free === 0 ? "bad" : free <= 1 ? "warn" : "ok");
+    $("#h-quote").textContent = `${Store.quotedPrep} min`;
+  }
+  setInterval(() => { $("#clock").textContent = mytTime(true); }, 1000);
+  $("#clock").textContent = mytTime(true);
+  Bus.on("orders.changed", render);
+  Bus.on("order.created", render);
+  render();
+  return { render };
+})();
+
+/* ════════════════════ MockSource + Autopilot ════════════════════
+   Delete this block when the backend is ready and add:
+
+     const ws = new WebSocket(`wss://api.hydeck.app/v1/kitchen/${kitchenId}/stream`);
+     ws.onmessage = e => {
+       const evt = JSON.parse(e.data);
+       if (evt.type === "order.created") { Store.orders.push(evt.order); Bus.emit("order.created", evt.order); }
+       if (evt.type === "order.updated") { Object.assign(Store.orders.find(o => o.id === evt.id), evt); Bus.emit("orders.changed"); }
+       if (evt.type === "rider.location") { const r = Store.riders.find(x => x.id === evt.riderId); r.lat = evt.lat; r.lon = evt.lon; }
+     };
+
+   Widgets only listen to the Bus, so none of them change. */
+(function MockSource() {
+  const weighted = () => {
+    const pool = Store.zones.flatMap(z => Array(z.weight).fill(z));
+    return pick(pool);
+  };
+
+  // Incoming online orders
+  (function incoming() {
+    if (!Store.rush) {
+      if (Math.random() < 0.28) Orders.create({ type: "pickup" });
+      else {
+        const z = weighted();
+        if (z.open) Orders.create({ zoneId: z.id });
+        else Bus.emit("log", { k: "alert", text: `Declined an order from ${z.name}: zone is paused` });
+      }
+    }
+    setTimeout(incoming, rand(7000, 13000));
+  })();
+
+  // Autopilot: moves tickets along like a real line cook would.
+  setInterval(() => {
+    if (!Store.autopilot) return;
+    const now = Date.now(), byAge = [...Store.orders].sort((a, b) => a.placedAt - b.placedAt);
+    const newOne = byAge.find(o => o.status === "new" && simMin(now - o.stageAt) > 3);
+    if (newOne && Math.random() < 0.6) Orders.advance(newOne, "auto");
+    const cooked = byAge.find(o => o.status === "cooking" && simMin(now - o.stageAt) > o.cookTarget);
+    if (cooked) Orders.advance(cooked, "auto");
+    const ready = byAge.find(o => o.status === "ready" && (o.type === "delivery" ? simMin(now - o.stageAt) > 2 : simMin(now - o.stageAt) > 6));
+    if (ready && (ready.type !== "delivery" || Orders.freeRider())) Orders.advance(ready, "auto");
+  }, 1500);
+  // Each order gets its own cook time so the line doesn't move in lockstep.
+  Bus.on("order.created", o => { o.cookTarget = rand(8, Store.quotedPrep * 0.9); });
+
+  // Seed a realistic mid-lunch board.
+  const seed = [
+    ["JT", 24, "cooking"], ["AS", 19, "cooking"], ["AB", 15, "ready"], [null, 12, "cooking"],
+    ["KB", 9, "new"], ["AS", 6, "new"], [null, 4, "new"], ["KK", 30, "ready"], ["AS", 2, "new"],
+  ];
+  for (const [zoneId, age, status] of seed) {
+    const o = Orders.create({ zoneId, type: zoneId ? "delivery" : "pickup", ageMin: age });
+    o.cookTarget = rand(10, 18);
+    if (status !== "new") { o.status = "cooking"; o.cookStartedAt = o.stageAt = Date.now() - realMs(age * 0.6); }
+    if (status === "ready") { o.status = "ready"; o.stageAt = Date.now() - realMs(1); }
+  }
+  // Two riders already on the road.
+  const away = Orders.create({ zoneId: "JT", ageMin: 28 }); away.status = "ready"; Riders.dispatch(Store.riders[0], away);
+  Store.riders[0].trip.t0 -= Store.riders[0].trip.dur * 0.45;
+  away.stageAt = Store.riders[0].trip.t0;
+  const away2 = Orders.create({ zoneId: "AB", ageMin: 22 }); away2.status = "ready"; Riders.dispatch(Store.riders[3], away2);
+  Store.riders[3].trip.t0 -= Store.riders[3].trip.dur * 0.7;
+  away2.stageAt = Store.riders[3].trip.t0;
+
+  Bus.emit("log", { k: "sys", text: "Lunch rush started. 6 riders on shift, Pendang paused (no rider coverage)." });
+  Bus.emit("orders.changed");
+})();
+</script>
