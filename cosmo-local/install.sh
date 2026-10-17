@@ -32,7 +32,7 @@ fi
 
 say "Downloading COSMO to $DIR…"
 mkdir -p "$DIR/data"
-for f in index.html server.py talk.py start.sh; do
+for f in index.html server.py talk.py start.sh countries.json; do
   curl -fsSL "$BASE/$f" -o "$DIR/$f"
 done
 chmod +x "$DIR/start.sh" "$DIR/server.py" "$DIR/talk.py"

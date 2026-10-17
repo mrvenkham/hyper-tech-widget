@@ -325,6 +325,74 @@ def news_cached_only():
     return (v or {}).get("items", [])
 
 
+# ───────────────────────── country news (globe) ─────────────────────────
+# Google News search RSS gathers recent headlines from many outlets and names
+# each outlet; links go through news.google.com to the original article.
+_country_cache, _country_lock = {}, threading.Lock()
+
+
+def fetch_country(name, force=False):
+    name = re.sub(r"[^\w .,'()-]", "", name)[:60].strip()
+    if not name:
+        return {"name": "", "items": [], "error": "No country given."}
+    key = name.lower()
+    with _country_lock:
+        hit = _country_cache.get(key)
+        if hit and not force and time.time() - hit["fetched"] < 15 * 60:
+            return hit
+    items, err = [], None
+    try:
+        q = urllib.parse.urlencode({"q": f'"{name}" when:2d', "hl": "en-US", "gl": "US", "ceid": "US:en"})
+        root = ET.fromstring(http_get("https://news.google.com/rss/search?" + q, timeout=8))
+        for n in root.findall(".//item")[:12]:
+            src_el = n.find("source")
+            source = (src_el.text or "").strip() if src_el is not None else "Unknown outlet"
+            title = _clean(_text(n, "title"))
+            if source and title.endswith(" - " + source):
+                title = title[: -len(source) - 3]
+            ts = None
+            try:
+                ts = parsedate_to_datetime(_text(n, "pubDate")).timestamp()
+            except Exception:
+                pass
+            link = _text(n, "link")
+            if title and link.startswith("http"):
+                items.append({"source": source, "title": title[:220], "link": link, "ts": ts})
+    except Exception as ex:
+        err = f"Google News: {type(ex).__name__}"
+    if not items:  # fall back to the main feeds, matching the country by name
+        pat = re.compile(r"\b" + re.escape(name.split(" (")[0]) + r"\b", re.I)
+        items = [{k: i[k] for k in ("source", "title", "link", "ts")} for i in news_cached_only() if pat.search(i["title"])][:10]
+    items.sort(key=lambda i: i["ts"] or 0, reverse=True)
+    out = {"name": name, "items": items, "error": err if not items else None, "fetched": time.time()}
+    with _country_lock:
+        _country_cache[key] = out
+        if len(_country_cache) > 60:
+            _country_cache.pop(next(iter(_country_cache)))
+    return out
+
+
+def country_brief(name):
+    data = fetch_country(name)
+    if data.get("brief") and time.time() - data.get("brief_at", 0) < 30 * 60:
+        return data
+    if not data["items"]:
+        data["brief"] = f"I couldn't find recent headlines about {data['name']}. Quiet news day, or no internet."
+        return data
+    heads = "\n".join(f"- ({i['source']}) {i['title']}" for i in data["items"][:10])
+    prompt = (f"HEADLINES about {data['name']} from the last two days (the only facts you may use):\n{heads}\n\n"
+              f"In plain text, under 90 words: what is happening in {data['name']} right now? "
+              "Give 3 short bullets, each ending with its outlet in brackets. "
+              "If the headlines disagree or are thin, say so. Do not add anything that is not in the headlines. "
+              "No TASK, MEMORY or ACTION lines.")
+    try:
+        data["brief"] = ollama_once([{"role": "user", "content": prompt}], num_predict=220)
+        data["brief_at"] = time.time()
+    except Exception as ex:
+        data["brief"] = f"The AI couldn't summarise right now ({type(ex).__name__}). The headlines below are live."
+    return data
+
+
 # ───────────────────────── brain, memory, monitor ─────────────────────────
 def brain():
     return load("brain", [])
@@ -691,6 +759,13 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(200, briefing(force=force))
             if p == "/api/greet":
                 return self.send(200, {"text": greeting()})
+            if p == "/countries.json":
+                with open(os.path.join(HERE, "countries.json"), "rb") as f:
+                    return self.send(200, f.read())
+            if p == "/api/country":
+                return self.send(200, fetch_country(q.get("name", [""])[0], force=force))
+            if p == "/api/country/brief":
+                return self.send(200, country_brief(q.get("name", [""])[0]))
             self.send(404, {"error": "not found"})
         except Exception as ex:
             log("GET", p, ex)

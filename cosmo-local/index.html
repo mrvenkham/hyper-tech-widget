@@ -7,7 +7,7 @@
 <title>JARVIS OS</title>
 <!-- No CDN, no web fonts: this file is served by the COSMO server on the phone (server.py). -->
 <style>
-/* Layout: one column on phones (Core → Briefing → COSMO → News → Brain → Monitor); two columns from 900px, COSMO full width. */
+/* Layout: one column on phones (Core → World globe → Briefing → COSMO → News → Brain → Monitor); from 900px two columns, globe and COSMO full width. */
 :root {
   --bg: #090a0f; --panel: rgba(12,16,24,0.7); --panel-solid: #0e121a;
   --line: rgba(0,240,255,0.2); --line-soft: rgba(0,240,255,0.1);
@@ -164,6 +164,20 @@ button { background: none; border: 0; cursor: pointer; }
 .memrow { display: flex; justify-content: space-between; gap: 8px; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--line-soft); font-size: 0.86rem; }
 .memrow span { overflow-wrap: anywhere; min-width: 0; }
 .panel[id="briefing"] { scroll-margin-top: 70px; }
+
+/* Globe */
+.grid { grid-auto-flow: row dense; }
+.globe-wrap { position: relative; width: min(100%, 440px); margin: 0 auto; aspect-ratio: 1; max-width: 100%; }
+.globe-wrap::before { content: ""; position: absolute; inset: 4%; border-radius: 50%; background: radial-gradient(circle, rgba(0,240,255,0.18) 55%, rgba(0,240,255,0) 72%); filter: blur(8px); pointer-events: none; }
+#globe { position: relative; width: 100%; height: 100%; display: block; touch-action: pan-y; cursor: grab; }
+#globe:active { cursor: grabbing; }
+.globe-hud { position: absolute; left: 0; right: 0; bottom: 4px; text-align: center; font-family: var(--font-mono); font-size: 0.62rem; letter-spacing: 0.12em; color: var(--muted); pointer-events: none; text-transform: uppercase; }
+.globe-tools { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 8px; }
+.cpanel { border-top: 1px solid var(--line-soft); padding-top: 12px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.chead { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
+.cname { font-family: var(--font-display); font-weight: 800; font-size: 1.15rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--cyan); text-shadow: 0 0 12px rgba(0,240,255,0.5); }
+.cbrief { white-space: pre-wrap; font-size: 0.9rem; border-left: 2px solid var(--purple); padding-left: 10px; overflow-wrap: anywhere; }
+.clist { display: flex; flex-direction: column; max-height: 320px; overflow-y: auto; }
 </style>
 </head>
 <body>
@@ -210,6 +224,31 @@ button { background: none; border: 0; cursor: pointer; }
         <button type="button" class="btn sm" data-act="vibrate">Buzz</button>
       </div>
       <div class="syslog" id="syslog"></div>
+    </div>
+  </section>
+
+
+  <!-- Globe -->
+  <section class="panel span2" id="world" aria-labelledby="h7">
+    <div class="head"><h2 class="title" id="h7"><i>M7</i>World Grid</h2><span class="tag">Drag to spin · tap a country</span></div>
+    <div class="body">
+      <div class="globe-wrap">
+        <canvas id="globe" aria-label="3D globe. Drag sideways to rotate, tap a country to see its news." role="img"></canvas>
+        <div class="globe-hud" id="globe-hud">Loading map…</div>
+      </div>
+      <form class="globe-tools" id="gform" autocomplete="off">
+        <label for="gsearch" class="sr">Find a country</label>
+        <input class="field" id="gsearch" list="glist" placeholder="Find a country… e.g. Malaysia">
+        <datalist id="glist"></datalist>
+        <button type="submit" class="btn sm pri">Go</button>
+      </form>
+      <div class="cpanel" id="cpanel" hidden>
+        <div class="chead"><div class="cname" id="cname"></div>
+          <div class="flex-row"><button type="button" class="btn sm pri" id="cbrief-btn">What's happening?</button> <button type="button" class="btn sm" id="crefresh">Refresh</button></div></div>
+        <div class="cbrief" id="cbrief" hidden></div>
+        <div class="clist news" id="clist"></div>
+        <div class="tag" id="cmeta"></div>
+      </div>
     </div>
   </section>
 
@@ -556,6 +595,7 @@ const Term = (() => {
   const say = t => print(t, "t-j");
   const C = {
     "/help": ["List commands", () => Object.entries(C).forEach(([k, [d]]) => print(`${k.padEnd(13)} ${d}`, "t-sys"))],
+    "/world": ["/world <country>  spin the globe there", a => { if (!a) return print("Usage: /world Japan", "t-err"); if (Globe.select(a)) { say(`Spinning to ${a}.`); location.hash = "world"; } else print(`No country called "${a}".`, "t-err"); }],
     "/brief": ["Today's briefing, fresh", () => { Briefing.load(true); say("Writing today's briefing. Check the panel above."); location.hash = "briefing"; }],
     "/news": ["Refresh headlines", () => { News.load(true); say("Pulling fresh headlines."); }],
     "/do": ["/do <action>  phone action", async a => { if (!a) return print("Try: /do torch on · /do battery · /do volume 8 · /do open tiktok", "t-sys"); try { print((await api("/api/act", { cmd: a })).result, "t-sys"); } catch (e) { print(e.message, "t-err"); } }],
@@ -611,6 +651,227 @@ const Term = (() => {
   }
   print("JARVIS OS · COSMO living on this phone", "t-sys");
   return { print };
+})();
+
+
+/* ---------- World Grid: 3D globe ----------
+   Rendered by hand on a canvas (no 3D library, works offline):
+   1. Country borders (Natural Earth, /countries.json) are painted once onto a flat
+      world map texture, plus a hidden "ID map" where each country has its own colour.
+   2. Each frame, every pixel of the globe disc is mapped back to a latitude/longitude
+      (orthographic projection) and coloured from the texture. Spinning only shifts
+      the longitude, so a frame is a table lookup, not trigonometry.
+   3. A tap reads the ID map at the tapped point to know which country it was.
+   News per country comes from /api/country (Google News headlines, outlet named). */
+const Globe = (() => {
+  const cv = $("#globe"), ctx = cv.getContext("2d"), hud = $("#globe-hud");
+  const TW = 2048, TH = 1024, DEG = Math.PI / 180;
+  let C = [], texDisp = null, texId = null, sel = -1;
+  let lam = 101.7, phi = 8;          // view centre: start over Malaysia
+  let D = 0, R = 0, pix, rowOff, lonT, shade, img, buf, tableFor = null;
+  let spinning = !window.matchMedia("(prefers-reduced-motion: reduce)").matches, idleAt = 0, visible = true, dirty = true, anim = null;
+
+  const ringPts = flat => { // unwrap longitudes so a ring crossing 180° stays continuous
+    const out = []; let prev = null, shift = 0;
+    for (let i = 0; i < flat.length; i += 2) {
+      let lo = flat[i] + shift;
+      if (prev !== null && lo - prev > 180) { shift -= 360; lo -= 360; }
+      else if (prev !== null && lo - prev < -180) { shift += 360; lo += 360; }
+      out.push([lo, flat[i + 1]]); prev = lo;
+    }
+    return out;
+  };
+  const tx = lo => (lo + 180) / 360 * TW, ty = la => (90 - la) / 180 * TH;
+
+  function paint(g, fillFor, stroke) {
+    C.forEach((c, i) => {
+      g.beginPath();
+      for (const poly of c.p) for (const flat of poly) {
+        const pts = c._rings?.get(flat) || ringPts(flat);
+        (c._rings ||= new Map()).set(flat, pts);
+        const minL = Math.min(...pts.map(p => p[0])), maxL = Math.max(...pts.map(p => p[0]));
+        for (const off of [0, minL < -180 ? 360 : null, maxL > 180 ? -360 : null]) {
+          if (off === null) continue;
+          pts.forEach(([lo, la], k) => k ? g.lineTo(tx(lo + off), ty(la)) : g.moveTo(tx(lo + off), ty(la)));
+          g.closePath();
+        }
+      }
+      g.fillStyle = fillFor(i); g.fill("evenodd");
+      if (stroke) { g.strokeStyle = i === sel ? "#ff7bff" : "rgba(0,240,255,0.65)"; g.lineWidth = i === sel ? 2.2 : 1; g.stroke(); }
+    });
+  }
+
+  function buildTextures() {
+    const t = document.createElement("canvas"); t.width = TW; t.height = TH;
+    const g = t.getContext("2d");
+    g.fillStyle = "#04121a"; g.fillRect(0, 0, TW, TH);
+    g.strokeStyle = "rgba(0,240,255,0.10)"; g.lineWidth = 1;
+    for (let lo = -180; lo <= 180; lo += 30) { g.beginPath(); g.moveTo(tx(lo), 0); g.lineTo(tx(lo), TH); g.stroke(); }
+    for (let la = -60; la <= 60; la += 30) { g.beginPath(); g.moveTo(0, ty(la)); g.lineTo(TW, ty(la)); g.stroke(); }
+    paint(g, i => i === sel ? "#6a1b9a" : "#0d3440", true);
+    texDisp = new Uint32Array(g.getImageData(0, 0, TW, TH).data.buffer.slice(0));
+    if (!texId) {
+      const k = document.createElement("canvas"); k.width = TW; k.height = TH;
+      const h = k.getContext("2d");
+      paint(h, i => `rgb(${i},0,255)`, false);
+      const d = h.getImageData(0, 0, TW, TH).data;
+      texId = new Uint8Array(TW * TH).fill(255);
+      for (let p = 0; p < TW * TH; p++) if (d[p * 4 + 3] === 255 && d[p * 4 + 2] > 250) texId[p] = d[p * 4];
+    }
+    dirty = true;
+  }
+
+  function size() {
+    const css = cv.clientWidth || 300;
+    const want = Math.min(560, Math.round(css * Math.min(window.devicePixelRatio || 1, 2)));
+    if (want !== D) { D = cv.width = cv.height = want; R = D / 2 - 6; img = ctx.createImageData(D, D); buf = new Uint32Array(img.data.buffer); tableFor = null; dirty = true; }
+  }
+
+  // Per-pixel lookup tables for the current tilt. Rebuilt only when the tilt changes.
+  function buildTable() {
+    const list = [], rows = [], lons = [], sh = [];
+    const sp = Math.sin(phi * DEG), cp = Math.cos(phi * DEG);
+    for (let j = 0; j < D; j++) for (let i = 0; i < D; i++) {
+      const u = (i + 0.5 - D / 2) / R, v = (D / 2 - j - 0.5) / R, rr = u * u + v * v;
+      if (rr > 1) continue;
+      const z = Math.sqrt(1 - rr);
+      const la = Math.asin(Math.max(-1, Math.min(1, v * cp + z * sp))) / DEG;
+      const lo = Math.atan2(u, z * cp - v * sp) / DEG;
+      list.push(j * D + i); rows.push(Math.min(TH - 1, Math.floor((90 - la) / 180 * TH)) * TW); lons.push(lo / 360 * TW);
+      sh.push(0.35 + 0.65 * Math.pow(z, 0.6)); // darker toward the edge, like a lit sphere
+    }
+    pix = Int32Array.from(list); rowOff = Int32Array.from(rows); lonT = Float32Array.from(lons); shade = Float32Array.from(sh);
+    tableFor = phi;
+  }
+
+  function render() {
+    if (!texDisp || !D) return;
+    if (tableFor !== phi) buildTable();
+    buf.fill(0);
+    const off = (lam + 180) / 360 * TW;
+    for (let k = 0; k < pix.length; k++) {
+      let x = (lonT[k] + off) | 0; x %= TW; if (x < 0) x += TW;
+      const t = texDisp[rowOff[k] + x], s = shade[k];
+      buf[pix[k]] = 0xff000000 | (((t >> 16 & 255) * s) << 16) | (((t >> 8 & 255) * s) << 8) | ((t & 255) * s);
+    }
+    ctx.putImageData(img, 0, 0);
+    ctx.beginPath(); ctx.arc(D / 2, D / 2, R + 1, 0, Math.PI * 2);
+    ctx.strokeStyle = "rgba(0,240,255,0.8)"; ctx.lineWidth = 1.5; ctx.shadowColor = "#00f0ff"; ctx.shadowBlur = 14; ctx.stroke(); ctx.shadowBlur = 0;
+    dirty = false;
+  }
+
+  let last = performance.now();
+  function loop(now) {
+    const dt = Math.min(0.1, (now - last) / 1000); last = now;
+    if (anim) {
+      const k = Math.min(1, (now - anim.t0) / 900), e = 1 - Math.pow(1 - k, 3);
+      lam = anim.l0 + anim.dl * e; phi = anim.p0 + (anim.p1 - anim.p0) * e; dirty = true;
+      if (k >= 1) anim = null;
+    } else if (spinning && now - idleAt > 6000) { lam += 5 * dt; dirty = true; }
+    if (dirty && visible && !document.hidden) render();
+    requestAnimationFrame(loop);
+  }
+
+  // Screen point → country index (or -1 for ocean / space)
+  function pick(clientX, clientY) {
+    const r = cv.getBoundingClientRect(), k = D / r.width;
+    const u = ((clientX - r.left) * k - D / 2) / R, v = (D / 2 - (clientY - r.top) * k) / R, rr = u * u + v * v;
+    if (rr > 1) return -1;
+    const z = Math.sqrt(1 - rr), sp = Math.sin(phi * DEG), cp = Math.cos(phi * DEG);
+    const la = Math.asin(v * cp + z * sp) / DEG;
+    let lo = lam + Math.atan2(u, z * cp - v * sp) / DEG;
+    lo = ((lo + 180) % 360 + 360) % 360 - 180;
+    const id = texId[Math.min(TH - 1, Math.floor((90 - la) / 180 * TH)) * TW + Math.min(TW - 1, Math.floor((lo + 180) / 360 * TW))];
+    return id === 255 ? -1 : id;
+  }
+
+  function centroid(c) {
+    let best = null, area = -1;
+    for (const poly of c.p) { const pts = ringPts(poly[0]); let a = 0; for (let i = 0; i < pts.length; i++) { const [x1, y1] = pts[i], [x2, y2] = pts[(i + 1) % pts.length]; a += x1 * y2 - x2 * y1; } a = Math.abs(a); if (a > area) { area = a; best = pts; } }
+    const lo = best.reduce((s, p) => s + p[0], 0) / best.length, la = best.reduce((s, p) => s + p[1], 0) / best.length;
+    return [lo, la];
+  }
+
+  function select(i, fly) {
+    if (i < 0 || i === sel) return;
+    sel = i; buildTextures(); idleAt = performance.now();
+    const c = C[i];
+    if (fly) { const [lo, la] = centroid(c); let dl = ((lo - lam + 540) % 360) - 180; anim = { t0: performance.now(), l0: lam, dl, p0: phi, p1: Math.max(-60, Math.min(60, la)) }; }
+    hud.textContent = c.n;
+    Country.show(c.n);
+  }
+
+  // Drag: sideways spins (vertical swipes still scroll the page on touch); mouse can also tilt.
+  let down = null;
+  cv.addEventListener("pointerdown", e => { down = { x: e.clientX, y: e.clientY, l: lam, p: phi, moved: false, mouse: e.pointerType === "mouse" }; cv.setPointerCapture(e.pointerId); anim = null; idleAt = performance.now(); });
+  cv.addEventListener("pointermove", e => {
+    if (!down) return;
+    const dx = e.clientX - down.x, dy = e.clientY - down.y, k = 90 / (cv.clientWidth / 2);
+    if (Math.abs(dx) + Math.abs(dy) > 6) down.moved = true;
+    lam = down.l - dx * k; if (down.mouse) phi = Math.max(-70, Math.min(70, down.p + dy * k));
+    idleAt = performance.now(); dirty = true;
+  });
+  const up = e => { if (down && !down.moved) select(pick(e.clientX, e.clientY), true); down = null; idleAt = performance.now(); };
+  cv.addEventListener("pointerup", up);
+  cv.addEventListener("pointercancel", () => { down = null; });
+
+  $("#gform").addEventListener("submit", e => {
+    e.preventDefault();
+    const q = $("#gsearch").value.trim().toLowerCase(); if (!q) return;
+    const i = C.findIndex(c => c.n.toLowerCase() === q) >= 0 ? C.findIndex(c => c.n.toLowerCase() === q) : C.findIndex(c => c.n.toLowerCase().startsWith(q));
+    if (i < 0) return Term.print(`No country matches "${$("#gsearch").value}".`, "t-err");
+    $("#gsearch").value = ""; select(i, true);
+  });
+
+  new ResizeObserver(() => { size(); }).observe(cv);
+  new IntersectionObserver(es => { visible = es[0].isIntersecting; if (visible) dirty = true; }).observe(cv);
+
+  fetch("/countries.json").then(r => r.json()).then(j => {
+    C = j.countries;
+    $("#glist").innerHTML = C.map(c => `<option value="${c.n.replace(/"/g, "&quot;")}"></option>`).join("");
+    size(); buildTextures();
+    hud.textContent = `${C.length} countries · tap one`;
+    requestAnimationFrame(loop);
+  }).catch(() => { hud.textContent = "Map didn't load. Run: cosmo update"; });
+
+  return { select: name => { const i = C.findIndex(c => c.n.toLowerCase() === String(name).toLowerCase()); if (i >= 0) select(i, true); return i >= 0; } };
+})();
+
+/* ---------- Country news panel ---------- */
+const Country = (() => {
+  let current = null, seq = 0;
+  function list(items) {
+    const el = $("#clist"); el.innerHTML = "";
+    if (!items.length) { el.innerHTML = '<div class="empty">No recent headlines found for this country.</div>'; return; }
+    for (const i of items) {
+      const a = document.createElement("a"); a.className = "nitem"; a.href = i.link; a.target = "_blank"; a.rel = "noopener";
+      const t = document.createElement("div"); t.className = "ntitle"; t.textContent = i.title;
+      const m = document.createElement("div"); m.className = "nmeta"; m.textContent = `${i.source}${i.ts ? " · " + ago(i.ts * 1000) : ""}`;
+      a.append(t, m); el.append(a);
+    }
+  }
+  async function show(name, force) {
+    current = name; const my = ++seq;
+    $("#cpanel").hidden = false; $("#cname").textContent = name; $("#cbrief").hidden = true;
+    $("#clist").innerHTML = '<div class="empty">Pulling the latest headlines…</div>'; $("#cmeta").textContent = "";
+    try {
+      const d = await api(`/api/country?name=${encodeURIComponent(name)}${force ? "&refresh=1" : ""}`);
+      if (my !== seq) return;
+      list(d.items);
+      $("#cmeta").textContent = d.items.length ? `${d.items.length} headlines · last 2 days · ${new Set(d.items.map(i => i.source)).size} outlets · tap to read the original` : (d.error || "");
+      if (d.brief) { $("#cbrief").hidden = false; $("#cbrief").textContent = d.brief; }
+    } catch (e) { if (my === seq) $("#clist").innerHTML = `<div class="empty">Couldn't reach the news (${e.message}).</div>`; }
+  }
+  $("#cbrief-btn").addEventListener("click", async () => {
+    if (!current) return;
+    const b = $("#cbrief"), my = seq; b.hidden = false; b.textContent = `COSMO is reading the ${current} headlines…`;
+    $("#cbrief-btn").disabled = true; Core.thinking(true);
+    try { const d = await api(`/api/country/brief?name=${encodeURIComponent(current)}`); if (my === seq) b.textContent = d.brief; }
+    catch (e) { b.textContent = "Couldn't summarise: " + e.message; }
+    $("#cbrief-btn").disabled = false; Core.thinking(false);
+  });
+  $("#crefresh").addEventListener("click", () => current && show(current, true));
+  return { show };
 })();
 
 /* ---------- COSMO speaks first ---------- */

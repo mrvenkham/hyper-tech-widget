@@ -74,7 +74,7 @@ case "$1" in
   logs)
     tail -n 40 "$DIR/server.log"; exit 0 ;;
   update)
-    for f in index.html server.py talk.py start.sh; do curl -fsSL "$BASE/$f" -o "$DIR/$f.new" && mv "$DIR/$f.new" "$DIR/$f"; done
+    for f in index.html server.py talk.py start.sh countries.json; do curl -fsSL "$BASE/$f" -o "$DIR/$f.new" && mv "$DIR/$f.new" "$DIR/$f"; done
     chmod +x "$DIR/start.sh"
     pgrep -f "$DIR/server.py" > /dev/null && restart_server
     say "Updated. Reload the JARVIS page."

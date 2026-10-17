@@ -67,7 +67,8 @@ The token is stored only in `~/cosmo/config.json` on your phone.
 | "What's the news?" | Summary of real headlines, each tagged with its source |
 | "Plan my day" | A plan from your tasks, sales, commits and weather |
 | "Turn on the torch" | Phone actions from the safe list |
-| `/brief` · `/news` · `/do battery` · `/status` · `/model` · `/focus 25` · `/voice` · `/forget` | Shortcuts |
+| Tap a country on the **World Grid** globe | Its latest headlines, then **What's happening?** for COSMO's summary |
+| `/world Japan` · `/brief` · `/news` · `/do battery` · `/status` · `/model` · `/focus 25` · `/voice` · `/forget` | Shortcuts |
 
 Home screen: long-press → Widgets → **Termux:Widget** → pick **COSMO** or **COSMO Talk**.
 
@@ -90,6 +91,16 @@ Change the times in `~/cosmo/config.json` under `"schedule"`, then `cosmo stop` 
   it on the outlet's own site.
 - An AI summary can still get details wrong, especially a small phone model.
   For anything important, read the original article.
+
+## World Grid globe
+
+- The globe is drawn on the phone from Natural Earth country borders
+  (`countries.json`, public domain), with no 3D library.
+- Drag sideways to spin it. A mouse can also tilt it. Tap a country, or type
+  its name and tap **Go**.
+- Headlines come from Google News search for that country over the last 2 days,
+  and each one names its outlet. Tap a headline to open the original.
+- **What's happening?** has COSMO summarise only those headlines, citing each outlet.
 
 ## What COSMO can't do
 
