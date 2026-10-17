@@ -4,11 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#090a0f">
-<title>JARVIS OS Local</title>
-<!-- 100% offline: no CDN, no web fonts. Everything below ships in this one file.
-     The AI runs in Ollama on this phone at http://127.0.0.1:11434 (started by `cosmo`). -->
+<title>JARVIS OS</title>
+<!-- No CDN, no web fonts: this file is served by the COSMO server on the phone (server.py). -->
 <style>
-/* Layout: one column on phones (Core → COSMO terminal → Brain → Monitor); two columns from 900px. */
+/* Layout: one column on phones (Core → Briefing → COSMO → News → Brain → Monitor); two columns from 900px, COSMO full width. */
 :root {
   --bg: #090a0f; --panel: rgba(12,16,24,0.7); --panel-solid: #0e121a;
   --line: rgba(0,240,255,0.2); --line-soft: rgba(0,240,255,0.1);
@@ -145,6 +144,26 @@ button { background: none; border: 0; cursor: pointer; }
 .help code { font-family: var(--font-mono); color: var(--cyan); background: rgba(0,0,0,0.4); padding: 1px 6px; }
 
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+
+/* Briefing, news, memory */
+.min0 { min-width: 0; }
+.greet { margin-top: 6px; font-size: 0.9rem; color: var(--fg); }
+.phone-row { display: flex; flex-wrap: wrap; gap: 6px; }
+.wx { font-size: 0.92rem; } .wx b { font-family: var(--font-display); font-size: 1.1rem; color: var(--cyan); }
+.pulse { display: flex; flex-wrap: wrap; gap: 6px; }
+.pill { font-family: var(--font-mono); font-size: 0.66rem; padding: 3px 8px; border: 1px solid var(--line-soft); color: var(--muted); }
+.pill.ok { color: var(--ok); border-color: rgba(43,255,177,0.4); } .pill.bad { color: var(--crimson); border-color: rgba(255,0,85,0.4); }
+.brief { white-space: pre-wrap; font-size: 0.92rem; line-height: 1.55; border-left: 2px solid var(--purple); padding-left: 10px; overflow-wrap: anywhere; }
+.news { display: flex; flex-direction: column; max-height: 420px; overflow-y: auto; border-top: 1px solid var(--line-soft); }
+.nitem { display: block; padding: 9px 2px; border-bottom: 1px solid var(--line-soft); color: inherit; text-decoration: none; transition: background-color .15s; }
+.nitem:hover, .nitem:focus-visible { background: rgba(0,240,255,0.05); outline: none; }
+.ntitle { font-size: 0.92rem; overflow-wrap: anywhere; }
+.nmeta { font-family: var(--font-mono); font-size: 0.62rem; color: var(--dim); letter-spacing: 0.06em; margin-top: 2px; text-transform: uppercase; }
+.t-mem { color: var(--purple); }
+.mem summary { cursor: pointer; font-family: var(--font-mono); font-size: 0.7rem; color: var(--muted); letter-spacing: 0.06em; padding: 6px 0; }
+.memrow { display: flex; justify-content: space-between; gap: 8px; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--line-soft); font-size: 0.86rem; }
+.memrow span { overflow-wrap: anywhere; min-width: 0; }
+.panel[id="briefing"] { scroll-margin-top: 70px; }
 </style>
 </head>
 <body>
@@ -152,10 +171,11 @@ button { background: none; border: 0; cursor: pointer; }
 
 <header class="top">
   <div class="wrap">
-    <div class="logo">J.A.R.V.I.S <b>OS</b><small>LOCAL · RUNNING ON THIS PHONE</small></div>
+    <div class="logo">J.A.R.V.I.S <b>OS</b><small>COSMO · LIVING ON THIS PHONE</small></div>
     <div class="chips">
-      <span class="chip"><span class="dot" id="c-eng-dot"></span>Engine <b id="c-eng">Checking…</b></span>
+      <span class="chip"><span class="dot" id="c-eng-dot"></span>Brain <b id="c-eng">Checking…</b></span>
       <span class="chip">Model <b id="c-model">—</b></span>
+      <span class="chip"><span class="dot" id="c-net-dot"></span>Online <b id="c-net">…</b></span>
       <span class="chip" id="c-focus" hidden>Focus <b id="c-focus-t">25:00</b></span>
       <span class="chip"><b id="c-clock">--:--</b></span>
     </div>
@@ -163,7 +183,7 @@ button { background: none; border: 0; cursor: pointer; }
 </header>
 
 <main class="wrap grid">
-  <!-- Core -->
+  <!-- Core + greeting -->
   <section class="panel" aria-labelledby="h1">
     <div class="head"><h2 class="title" id="h1"><i>M1</i>Core Engine</h2><span class="tag">Tap the heart</span></div>
     <div class="body">
@@ -178,20 +198,37 @@ button { background: none; border: 0; cursor: pointer; }
           </svg>
           <span class="core-lbl" id="core-pct">98%</span>
         </button>
-        <div class="min-w-0">
+        <div class="min0">
           <div class="status" id="status">System Status: <b>Optimized</b></div>
-          <div class="kv">Pulses <b id="k-pulses">0</b> · Brain <b id="k-brain">0</b><br>Uptime <b id="k-up">00:00</b> · Data <b>on this phone</b></div>
+          <div class="greet" id="greet">COSMO is waking up…</div>
         </div>
+      </div>
+      <div class="phone-row" id="phone-row">
+        <button type="button" class="btn sm" data-act="torch on">Torch on</button>
+        <button type="button" class="btn sm" data-act="torch off">Torch off</button>
+        <button type="button" class="btn sm" data-act="battery">Battery</button>
+        <button type="button" class="btn sm" data-act="vibrate">Buzz</button>
       </div>
       <div class="syslog" id="syslog"></div>
     </div>
   </section>
 
+  <!-- Daily briefing -->
+  <section class="panel pp" id="briefing" aria-labelledby="h5">
+    <div class="head"><h2 class="title" id="h5"><i>M5</i>Daily Briefing</h2><button type="button" class="btn sm" id="b-refresh">Refresh</button></div>
+    <div class="body">
+      <div class="wx" id="wx">Weather loading…</div>
+      <div class="pulse" id="pulse"></div>
+      <div class="brief" id="brief-text">Loading today's briefing…</div>
+      <div class="tag" id="brief-meta"></div>
+    </div>
+  </section>
+
   <!-- COSMO terminal -->
-  <section class="panel pp" aria-labelledby="h4">
-    <div class="head"><h2 class="title" id="h4"><i>M4</i>COSMO</h2><span class="tag">Talk normally · /help</span></div>
+  <section class="panel pp span2" aria-labelledby="h4">
+    <div class="head"><h2 class="title" id="h4"><i>M4</i>COSMO</h2><span class="tag" id="t-engine">Talk normally · /help</span></div>
     <div id="offline-help" class="body" hidden>
-      <div class="help">COSMO's engine isn't running. Open <b>Termux</b> and type <code>cosmo</code>, then come back here. This page retries every few seconds.</div>
+      <div class="help">COSMO's server isn't running. Open <b>Termux</b> and type <code>cosmo</code>, then come back. This page retries every few seconds.</div>
     </div>
     <div class="term">
       <div class="out" id="out" aria-live="polite"></div>
@@ -203,6 +240,20 @@ button { background: none; border: 0; cursor: pointer; }
         <button type="button" class="btn sm" id="stop" hidden>Stop</button>
       </form>
       <div class="quick" id="quick"></div>
+    </div>
+  </section>
+
+  <!-- News -->
+  <section class="panel" aria-labelledby="h6">
+    <div class="head"><h2 class="title" id="h6"><i>M6</i>Live News</h2>
+      <div class="seg" id="nseg" role="group" aria-label="Category">
+        <button type="button" data-v="all" aria-pressed="true">ALL</button><button type="button" data-v="malaysia" aria-pressed="false">MY</button><button type="button" data-v="world" aria-pressed="false">WORLD</button><button type="button" data-v="tech" aria-pressed="false">TECH</button>
+      </div>
+    </div>
+    <div class="body">
+      <div class="tag">Straight from the outlets. Tap a headline to read the original.</div>
+      <div class="news" id="news"><div class="empty">Fetching headlines…</div></div>
+      <div class="tag" id="news-meta"></div>
     </div>
   </section>
 
@@ -224,6 +275,7 @@ button { background: none; border: 0; cursor: pointer; }
         </div>
       </div>
       <div class="index" id="index"></div>
+      <details class="mem"><summary>What COSMO remembers about you (<span id="mcount">0</span>)</summary><div id="memlist"></div></details>
     </div>
   </section>
 
@@ -236,101 +288,143 @@ button { background: none; border: 0; cursor: pointer; }
 
 <script>
 /* ════════════════════════════════════════════════════════════════════
-   JARVIS OS Local — everything stays on the phone.
-     • AI:     Ollama at http://127.0.0.1:11434  (POST /api/chat, streamed)
-     • Data:   this browser's localStorage on 127.0.0.1:8080
-     • Tasks:  COSMO writes lines starting "TASK:"; the page turns them into
-               Second Brain tasks (works with any small model, no tool calling needed)
+   JARVIS OS · COSMO on the phone
+   The page talks only to the COSMO server on this phone (same origin):
+     /api/chat (streamed)   /api/briefing   /api/news   /api/greet
+     /api/brain/*           /api/memory     /api/monitor   /api/act
+   The server picks the AI engine (laptop first, then phone), reads the
+   news feeds, keeps your data in ~/cosmo/data and sends notifications.
    ════════════════════════════════════════════════════════════════════ */
-const OLLAMA = "http://127.0.0.1:11434";
-// Speed settings for phone CPUs:
-const KEEP_ALIVE = "30m";  // keep the model in RAM between questions (Ollama's default unloads after 5 min)
-const NUM_CTX = 2048;      // smaller context window = less work per reply
-const NUM_PREDICT = 220;   // cap reply length (~150 words)
-const MAX_TURNS = 8;       // chat turns sent back each time
 const $ = s => document.querySelector(s);
 const pad2 = n => String(n).padStart(2, "0");
-const now = () => { const d = new Date(); return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`; };
+const hm = d => `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const store = {
   get(k, d) { try { const v = JSON.parse(localStorage.getItem(k)); return v ?? d; } catch { return d; } },
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
 };
-const BOOT = Date.now();
+async function api(path, body) {
+  const r = await fetch(path, body === undefined ? { cache: "no-store" } : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+  return j;
+}
+const ago = ts => { const m = Math.round((Date.now() - ts) / 60000); return m < 1 ? "now" : m < 60 ? `${m}m ago` : m < 1440 ? `${Math.round(m / 60)}h ago` : `${Math.round(m / 1440)}d ago`; };
 
 /* ---------- Core ---------- */
 const Core = (() => {
   let pulses = 0, eff = 98;
   const core = $("#core");
   function log(t) {
-    const d = document.createElement("div");
-    d.innerHTML = `<time>${now()}</time>`; d.append(t);
-    $("#syslog").prepend(d);
-    while ($("#syslog").children.length > 25) $("#syslog").lastChild.remove();
+    const d = document.createElement("div"); d.innerHTML = `<time>${hm(new Date())}</time>`; d.append(t);
+    $("#syslog").prepend(d); while ($("#syslog").children.length > 25) $("#syslog").lastChild.remove();
   }
   function status(ok) { $("#status").innerHTML = ok ? "System Status: <b>Optimized</b>" : 'System Status: <b class="bad">Needs a pulse</b>'; }
   function pulse(src) {
-    pulses++; eff = eff + (100 - eff) * 0.6;
-    $("#core-pct").textContent = Math.round(eff) + "%"; $("#k-pulses").textContent = pulses;
+    pulses++; eff = eff + (100 - eff) * 0.6; $("#core-pct").textContent = Math.round(eff) + "%";
     const s = document.createElement("span"); s.className = "shock"; core.append(s); setTimeout(() => s.remove(), 950);
     try { navigator.vibrate && navigator.vibrate(18); } catch {}
     status(true); log(`Pulse #${pulses} (${src}). System Status: Optimized.`);
   }
   core.addEventListener("click", () => pulse("manual"));
-  setInterval(() => {
-    eff = Math.max(61, eff - 0.35); $("#core-pct").textContent = Math.round(eff) + "%";
-    if (eff < 75) status(false);
-    const s = Math.floor((Date.now() - BOOT) / 1000);
-    $("#k-up").textContent = `${pad2(Math.floor(s / 60))}:${pad2(s % 60)}`;
-    $("#c-clock").textContent = now();
-  }, 1000);
-  $("#c-clock").textContent = now();
-  log("JARVIS OS Local online. No cloud. No excuses.");
+  setInterval(() => { eff = Math.max(61, eff - 0.35); $("#core-pct").textContent = Math.round(eff) + "%"; if (eff < 75) status(false); $("#c-clock").textContent = hm(new Date()); }, 1000);
+  $("#c-clock").textContent = hm(new Date());
+  $("#phone-row").addEventListener("click", async e => {
+    const b = e.target.closest("[data-act]"); if (!b) return;
+    try { const r = await api("/api/act", { cmd: b.dataset.act }); log(r.result); } catch (err) { log("Phone action failed: " + err.message); }
+  });
   return { pulse, log, thinking: on => core.classList.toggle("think", on) };
 })();
 
-/* ---------- Brain (localStorage) ---------- */
-const Brain = (() => {
-  let list = store.get("cosmo.brain", []), type = "task", filter = "all", armed = null, fresh = new Set();
-  const save = () => store.set("cosmo.brain", list);
-  function add(text, t = type) {
-    text = String(text).trim().slice(0, 280); if (!text) return;
-    const n = { id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), text, type: t, done: false, at: Date.now() };
-    list.unshift(n); fresh.add(n.id); save(); render(); return n;
+/* ---------- Status (server + engine) ---------- */
+const Status = (() => {
+  let up = false, engine = null, serverUp = true;
+  async function check(force) {
+    try {
+      const s = await api("/api/status" + (force ? "?refresh=1" : ""));
+      serverUp = true; $("#offline-help").hidden = true;
+      engine = s.engine;
+      $("#c-eng-dot").className = "dot " + (engine ? (engine.name === "Laptop" ? "cy" : "ok") : "bad");
+      $("#c-eng").textContent = engine ? engine.name : "No engine";
+      $("#c-model").textContent = engine ? engine.model : "—";
+      $("#t-engine").textContent = engine ? `Thinking on: ${engine.name}` : "No AI engine running";
+      $("#phone-row").hidden = !s.phone_api;
+      if (!up && engine) Core.log(`Brain online: ${engine.name} · ${engine.model}`);
+      up = !!engine;
+    } catch {
+      if (serverUp) Core.log("Lost the COSMO server.");
+      serverUp = false; up = false; $("#offline-help").hidden = false;
+      $("#c-eng-dot").className = "dot bad"; $("#c-eng").textContent = "Offline";
+    }
   }
+  check(); setInterval(check, 10000);
+  return { check, get up() { return up; }, get engine() { return engine; } };
+})();
+
+/* ---------- Brain (server-backed) ---------- */
+const Brain = (() => {
+  let list = [], type = "task", filter = "all", armed = null, fresh = new Set();
+  function set(l) { const old = new Set(list.map(n => n.id)); if (list.length) l.forEach(n => { if (!old.has(n.id)) fresh.add(n.id); }); list = l; render(); }
+  async function load() {
+    try {
+      let l = await api("/api/brain");
+      // One-time move of notes saved by the older, browser-only version.
+      const local = store.get("cosmo.brain", null);
+      if (local && local.length) { l = await api("/api/brain/import", { items: local }); store.set("cosmo.brain", null); Core.log(`Moved ${local.length} old entries into the phone brain.`); }
+      set(l);
+    } catch {}
+  }
+  async function add(text, t = type) { text = String(text).trim(); if (!text) return; set(await api("/api/brain/add", { text, type: t })); }
   function render() {
     const view = list.filter(n => filter === "all" || (filter === "done" ? n.done : !n.done));
     const open = list.filter(n => n.type === "task" && !n.done).length;
     $("#bcount").textContent = `${list.length} entries · ${open} open`;
-    $("#k-brain").textContent = list.length;
     const idx = $("#index"); idx.innerHTML = "";
-    if (!view.length) { idx.innerHTML = `<div class="empty">${list.length ? "Nothing here with this filter." : "Brain is empty. Add a task above, or ask COSMO to plan something."}</div>`; return; }
+    if (!view.length) { idx.innerHTML = `<div class="empty">${list.length ? "Nothing here with this filter." : "Brain is empty. Add a task, or tell COSMO a goal."}</div>`; return; }
     for (const n of view) {
       const row = document.createElement("div");
-      row.className = "entry" + (n.done ? " done" : "") + (fresh.has(n.id) ? " fresh" : "");
-      row.dataset.id = n.id;
+      row.className = "entry" + (n.done ? " done" : "") + (fresh.has(n.id) ? " fresh" : ""); row.dataset.id = n.id;
       row.innerHTML = (n.type === "task" ? `<button type="button" class="check" role="checkbox" aria-checked="${n.done}" aria-label="Done" data-a="t"></button>` : `<span class="glyph ${n.type}">${n.type === "idea" ? "◆" : "▸"}</span>`)
-        + `<div><div class="etext"></div><div class="emeta">${n.type}</div></div><button type="button" class="x ${armed === n.id ? "armed" : ""}" data-a="d" aria-label="${armed === n.id ? "Tap again to delete" : "Delete"}">✕</button>`;
-      row.querySelector(".etext").textContent = n.text;
-      idx.append(row);
+        + `<div><div class="etext"></div><div class="emeta">${n.type} · ${ago(n.at)}</div></div><button type="button" class="x ${armed === n.id ? "armed" : ""}" data-a="d" aria-label="${armed === n.id ? "Tap again to delete" : "Delete"}">✕</button>`;
+      row.querySelector(".etext").textContent = n.text; idx.append(row);
     }
     fresh.clear();
   }
-  $("#index").addEventListener("click", e => {
+  $("#index").addEventListener("click", async e => {
     const b = e.target.closest("[data-a]"); if (!b) return;
     const id = b.closest("[data-id]").dataset.id;
-    if (b.dataset.a === "t") { const n = list.find(x => x.id === id); n.done = !n.done; save(); render(); }
-    else if (armed === id) { armed = null; list = list.filter(x => x.id !== id); save(); render(); }
+    if (b.dataset.a === "t") set(await api("/api/brain/toggle", { id }));
+    else if (armed === id) { armed = null; set(await api("/api/brain/delete", { id })); }
     else { armed = id; render(); setTimeout(() => { if (armed === id) { armed = null; render(); } }, 3000); }
   });
-  $("#bform").addEventListener("submit", e => { e.preventDefault(); const n = add($("#bin").value); if (n) { $("#bin").value = ""; Core.log(`Brain ingested a ${n.type}.`); } });
+  $("#bform").addEventListener("submit", async e => { e.preventDefault(); const v = $("#bin").value; $("#bin").value = ""; await add(v); });
   function seg(sel, fn) { $(sel).addEventListener("click", e => { const b = e.target.closest("[data-v]"); if (!b) return; $(sel).querySelectorAll("button").forEach(x => x.setAttribute("aria-pressed", x === b)); fn(b.dataset.v); }); }
   seg("#tseg", v => type = v); seg("#fseg", v => { filter = v; render(); });
-  render();
-  return { add, open: () => list.filter(n => n.type === "task" && !n.done), get all() { return list; } };
+  load();
+  return { add, load, get all() { return list; }, open: () => list.filter(n => n.type === "task" && !n.done) };
 })();
 
-/* ---------- Monitor (localStorage) ---------- */
+/* ---------- Memory ---------- */
+const Memory = (() => {
+  async function load() {
+    try {
+      const m = await api("/api/memory");
+      $("#mcount").textContent = m.length;
+      const el = $("#memlist"); el.innerHTML = m.length ? "" : '<div class="empty">Nothing yet. Tell COSMO about yourself and your goals.</div>';
+      [...m].reverse().forEach(x => {
+        const row = document.createElement("div"); row.className = "memrow";
+        const t = document.createElement("span"); t.textContent = x.fact;
+        const del = document.createElement("button"); del.type = "button"; del.className = "x"; del.textContent = "✕"; del.setAttribute("aria-label", "Forget this");
+        del.onclick = async () => { await api("/api/memory/delete", { fact: x.fact }); load(); };
+        row.append(t, del); el.append(row);
+      });
+    } catch {}
+  }
+  load();
+  return { load };
+})();
+
+/* ---------- Monitor ---------- */
 const Monitor = (() => {
   const DEFS = [
     { k: "layout", name: "Code Layout", max: 100, step: 5, u: "%", c: "var(--cyan)" },
@@ -338,84 +432,97 @@ const Monitor = (() => {
     { k: "packs", name: "Theme Packs Shipped", max: 4, step: 1, u: "packs", c: "var(--ok)" },
     { k: "devlog", name: "Devlog Video", max: 100, step: 10, u: "%", c: "var(--crimson)" },
   ];
-  const v = store.get("cosmo.monitor", { layout: 85, recall: 12, packs: 2, devlog: 20 });
+  let v = { layout: 85, recall: 12, packs: 2, devlog: 20 }, t = null;
   $("#monitor").innerHTML = DEFS.map(d => `<div class="metric" style="--mc:${d.c}"><div class="mname">${d.name}</div><div class="mval" id="mv-${d.k}"></div>
     <div class="bar"><div class="fill" id="mf-${d.k}"></div></div>
     <div class="mctl"><button type="button" class="btn sm" data-k="${d.k}" data-d="-1">− ${d.step}</button><button type="button" class="btn sm" data-k="${d.k}" data-d="1">+ ${d.step}</button></div></div>`).join("");
   function render() { for (const d of DEFS) { $(`#mv-${d.k}`).textContent = d.u === "%" ? `${v[d.k]}%` : `${v[d.k]} / ${d.max}`; $(`#mf-${d.k}`).style.width = v[d.k] / d.max * 100 + "%"; } }
-  $("#monitor").addEventListener("click", e => { const b = e.target.closest("[data-k]"); if (!b) return; const d = DEFS.find(x => x.k === b.dataset.k); v[d.k] = clamp(v[d.k] + (+b.dataset.d) * d.step, 0, d.max); store.set("cosmo.monitor", v); render(); });
-  requestAnimationFrame(() => requestAnimationFrame(render));
-  return { v };
+  $("#monitor").addEventListener("click", e => {
+    const b = e.target.closest("[data-k]"); if (!b) return;
+    const d = DEFS.find(x => x.k === b.dataset.k); v[d.k] = clamp(v[d.k] + (+b.dataset.d) * d.step, 0, d.max); render();
+    clearTimeout(t); t = setTimeout(() => api("/api/monitor", v).catch(() => {}), 600);
+  });
+  api("/api/monitor").then(m => { v = { ...v, ...m }; render(); }).catch(() => render());
+  return { get v() { return v; } };
 })();
 
-/* ---------- Engine link (Ollama) ---------- */
-const Engine = (() => {
-  let model = store.get("cosmo.model", null), models = [], up = false;
-  function chip(state, label) { $("#c-eng-dot").className = "dot " + state; $("#c-eng").textContent = label; }
-  async function check() {
+/* ---------- Briefing ---------- */
+const Briefing = (() => {
+  function renderPulse(p) {
+    const g = p?.gumroad || {}, gh = p?.github || {}, bits = [];
+    bits.push(g.ok ? `<span class="pill ok">Gumroad · ${g.today} today · ${g.week} this week</span>` : g.connected ? '<span class="pill bad">Gumroad · error</span>' : '<span class="pill">Gumroad · not connected</span>');
+    if (gh.ok) bits.push(`<span class="pill ${gh.days_since >= 3 ? "bad" : "ok"}">GitHub · ${gh.days_since === 0 ? "pushed today" : gh.days_since == null ? "no pushes" : gh.days_since + "d since push"}</span>`);
+    $("#pulse").innerHTML = bits.join("");
+  }
+  async function load(force) {
+    $("#b-refresh").disabled = true;
+    $("#brief-text").textContent = force ? "COSMO is reading the news and planning your day… (on a phone model this can take a minute)" : $("#brief-text").textContent;
     try {
-      const r = await fetch(OLLAMA + "/api/tags", { cache: "no-store" });
-      const j = await r.json();
-      models = (j.models || []).map(m => m.name);
-      if (!models.length) { up = false; chip("bad", "No model"); Term.print("Engine is running but has no model. In Termux: ollama pull llama3.2:3b", "t-err"); return; }
-      if (!model || !models.includes(model)) { model = models[0]; store.set("cosmo.model", model); }
-      if (!up) { Core.log(`Engine online · ${model}`); warm(); }
-      up = true; chip("ok", "Online"); $("#c-model").textContent = model; $("#offline-help").hidden = true;
-    } catch {
-      if (up) Core.log("Engine went offline.");
-      up = false; chip("bad", "Offline"); $("#offline-help").hidden = false;
+      const b = await api("/api/briefing" + (force ? "?refresh=1" : ""));
+      const w = b.weather;
+      $("#wx").innerHTML = w?.ok ? `<b>${w.temp}°C</b> ${w.now} · ${w.city} · high ${w.high}° · rain ${w.rain_chance}% <span class="tag">Open-Meteo</span>` : `Weather unavailable for ${w?.city || "your city"}.`;
+      renderPulse(b.pulse);
+      $("#brief-text").textContent = b.text || b.error || "No AI engine is running, so there's no written plan. The news and weather above are live.";
+      $("#brief-meta").textContent = `Written ${b.generated ? ago(b.generated * 1000) : ""}${b.engine ? " · " + b.engine : ""}${b.news_errors?.length ? " · some feeds offline" : ""}`;
+    } catch (e) { $("#brief-text").textContent = "Couldn't load the briefing: " + e.message; }
+    $("#b-refresh").disabled = false;
+  }
+  $("#b-refresh").addEventListener("click", () => load(true));
+  load(false);
+  return { load };
+})();
+
+/* ---------- News ---------- */
+const News = (() => {
+  let items = [], cat = "all";
+  function render() {
+    const view = items.filter(i => cat === "all" || i.cat === cat).slice(0, 24);
+    const el = $("#news"); el.innerHTML = "";
+    if (!view.length) { el.innerHTML = '<div class="empty">No headlines. Check your internet, then tap a category to retry.</div>'; return; }
+    for (const i of view) {
+      const a = document.createElement("a"); a.className = "nitem"; a.href = i.link; a.target = "_blank"; a.rel = "noopener";
+      const t = document.createElement("div"); t.className = "ntitle"; t.textContent = i.title;
+      const m = document.createElement("div"); m.className = "nmeta"; m.textContent = `${i.source}${i.ts ? " · " + ago(i.ts * 1000) : ""}`;
+      a.append(t, m); el.append(a);
     }
   }
-  // Load the model into memory as soon as the engine is reachable and keep it
-  // there for 30 min, so the first question doesn't wait for a cold load.
-  function warm() {
-    if (!model) return;
-    fetch(OLLAMA + "/api/generate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ model, keep_alive: KEEP_ALIVE }) })
-      .then(() => Core.log("Model loaded and ready.")).catch(() => {});
+  async function load(force) {
+    try {
+      const n = await api("/api/news" + (force ? "?refresh=1" : ""));
+      items = n.items || []; render();
+      $("#news-meta").textContent = `Updated ${ago(n.fetched * 1000)} · ${new Set(items.map(i => i.source)).size} sources${n.errors?.length ? " · offline: " + n.errors.map(e => e.split(":")[0]).join(", ") : ""}`;
+      $("#c-net-dot").className = "dot " + (items.length ? "ok" : "bad"); $("#c-net").textContent = items.length ? "Yes" : "No";
+    } catch { $("#c-net-dot").className = "dot bad"; $("#c-net").textContent = "No"; }
   }
-  check(); setInterval(check, 8000);
-  return { get up() { return up; }, get model() { return model; }, get models() { return models; }, setModel(m) { model = m; store.set("cosmo.model", m); $("#c-model").textContent = m; warm(); }, check };
+  $("#nseg").addEventListener("click", e => { const b = e.target.closest("[data-v]"); if (!b) return; $("#nseg").querySelectorAll("button").forEach(x => x.setAttribute("aria-pressed", x === b)); cat = b.dataset.v; if (!items.length) load(true); else render(); });
+  load(false); setInterval(() => load(false), 20 * 60000);
+  return { load };
 })();
 
-/* ---------- COSMO ---------- */
+/* ---------- COSMO chat ---------- */
 const Cosmo = (() => {
-  let history = [], ctl = null, voice = store.get("cosmo.voice", false);
-  // The system prompt never changes, so Ollama can reuse its cached work for it
-  // (and for earlier turns) instead of re-reading everything on every question.
-  // Live state rides on the newest message only.
-  const SYSTEM = `You are COSMO, a sharp, direct, slightly witty personal coach, like Jarvis, running fully offline on the user's phone.
-The user is a 16-year-old developer and creator in Kedah, Malaysia, who builds HyDeck, an Android widget app sold on Gumroad with theme packs (MIDAS, GYM). Call them "boss". Casual Malaysian words like "bro" and "steady" are fine sometimes.
-Rules:
-- Keep replies short: under 100 words, plain text, no markdown.
-- No generic motivational quotes. Give concrete actions. Call out slacking directly but kindly.
-- When they state an open-ended goal, give exactly 3 steps they can finish within the hour. Write each step on its own line starting with "TASK: ".
-- Sleep, school and health are part of performance. Never push all-nighters.
-- Prefer actions that get HyDeck in front of buyers over building new prototypes.
-- End with a short status line in square brackets.
-Each message may end with a [Context: …] block showing the user's current tasks and project numbers. Use it; don't repeat it back.`;
-  function context() {
-    const open = Brain.open().slice(0, 8), m = Monitor.v;
-    return `[Context: ${new Date().toLocaleString("en-GB", { weekday: "short", hour: "2-digit", minute: "2-digit" })}. Open tasks: ${open.length ? open.map(n => n.text).join("; ") : "none"}. Layout ${m.layout}%, Recall ${m.recall}/20, Packs ${m.packs}/4, Devlog ${m.devlog}%.]`;
-  }
+  let ctl = null, voice = store.get("cosmo.voice", false);
   function speak(t) {
     if (!voice || !("speechSynthesis" in window)) return;
-    try { speechSynthesis.cancel(); const u = new SpeechSynthesisUtterance(t.replace(/TASK:\s*/g, "").replace(/\[[^\]]*\]\s*$/, "")); u.rate = 1.05; u.pitch = 0.9; speechSynthesis.speak(u); } catch {}
+    try { speechSynthesis.cancel(); const u = new SpeechSynthesisUtterance(t.replace(/^\s*(TASK|MEMORY|ACTION):.*$/gim, "").replace(/\[[^\]]*\]\s*$/, "")); u.rate = 1.05; u.pitch = 0.9; speechSynthesis.speak(u); } catch {}
+  }
+  function showEvents(evs) {
+    for (const e of evs || []) {
+      if (e.kind === "task") Term.print(`+ task added: ${e.text}`, "t-ok");
+      if (e.kind === "memory") Term.print(`◆ remembered: ${e.text}`, "t-mem");
+      if (e.kind === "action") Term.print(`⚙ ${e.text} → ${e.result}`, "t-sys");
+    }
+    if (evs?.some(e => e.kind === "task")) Brain.load();
+    if (evs?.some(e => e.kind === "memory")) Memory.load();
   }
   async function ask(text) {
     if (ctl) return Term.print("Still answering. Tap Stop first.", "t-err");
-    if (!Engine.up) { await Engine.check(); if (!Engine.up) return Term.print("Engine offline. Open Termux and type: cosmo", "t-err"); }
-    history.push({ role: "user", content: `${text}\n\n${context()}` });
-    // Trim in chunks, not one turn at a time, so the cached prefix survives most calls.
-    if (history.length > MAX_TURNS + 4) history = history.slice(-MAX_TURNS);
     const line = Term.print("Thinking…", "t-j");
     ctl = new AbortController(); Core.thinking(true); $("#send").hidden = true; $("#stop").hidden = false;
     let full = "";
     try {
-      const r = await fetch(OLLAMA + "/api/chat", {
-        method: "POST", signal: ctl.signal, headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ model: Engine.model, stream: true, keep_alive: KEEP_ALIVE, messages: [{ role: "system", content: SYSTEM }, ...history], options: { temperature: 0.7, num_ctx: NUM_CTX, num_predict: NUM_PREDICT } }),
-      });
-      if (!r.ok) throw new Error(`Engine answered ${r.status}`);
+      const r = await fetch("/api/chat", { method: "POST", signal: ctl.signal, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ message: text }) });
+      if (!r.ok) throw new Error(`server answered ${r.status}`);
       const reader = r.body.getReader(), dec = new TextDecoder(); let buf = "";
       while (true) {
         const { value, done } = await reader.read(); if (done) break;
@@ -425,32 +532,21 @@ Each message may end with a [Context: …] block showing the user's current task
           if (!l.trim()) continue;
           const j = JSON.parse(l);
           if (j.error) throw new Error(j.error);
-          if (j.message?.content) { full += j.message.content; line.textContent = full; $("#out").scrollTop = 1e9; }
-          if (j.done && j.eval_count && j.eval_duration) {
-            // Ollama reports timings in nanoseconds.
-            const tps = j.eval_count / (j.eval_duration / 1e9);
-            const think = (j.load_duration || 0) / 1e9 + (j.prompt_eval_duration || 0) / 1e9;
-            Term.print(`⚡ ${tps.toFixed(1)} tokens/s · ${think.toFixed(1)} s before the first word`, "t-sys");
+          if (j.t) { full += j.t; line.textContent = full; $("#out").scrollTop = 1e9; }
+          if (j.done) {
+            const s = j.stats || {};
+            if (s.eval_count && s.eval_duration) Term.print(`⚡ ${(s.eval_count / (s.eval_duration / 1e9)).toFixed(1)} tokens/s · ${(((s.load_duration || 0) + (s.prompt_eval_duration || 0)) / 1e9).toFixed(1)} s before the first word`, "t-sys");
+            showEvents(j.events);
           }
         }
       }
-      history.push({ role: "assistant", content: full });
-      const tasks = [...full.matchAll(/^\s*(?:[-*\d.)\s]*)TASK:\s*(.+)$/gim)].map(m => m[1].trim()).slice(0, 5);
-      // The brain lists newest first, so add in reverse to keep step 1 on top.
-      [...tasks].reverse().forEach(t => Brain.add(t, "task"));
-      tasks.forEach(t => Term.print(`+ task added: ${t}`, "t-ok"));
       Core.log("COSMO responded."); speak(full);
     } catch (e) {
-      history.pop();
-      if (e.name === "AbortError") line.textContent = (full ? full + " …" : "Stopped.");
-      else { if (!full) line.remove(); Term.print(`Lost the engine mid-thought (${e.message}). Check Termux is still running.`, "t-err"); Engine.check(); }
+      if (e.name === "AbortError") line.textContent = full ? full + " …" : "Stopped.";
+      else { if (!full) line.remove(); Term.print(e.message.includes("No AI engine") ? "No AI engine running. In Termux: cosmo" : `Lost COSMO mid-thought (${e.message}).`, "t-err"); Status.check(true); }
     } finally { ctl = null; Core.thinking(false); $("#send").hidden = false; $("#stop").hidden = true; }
   }
-  return {
-    ask, stop() { ctl?.abort(); try { speechSynthesis.cancel(); } catch {} },
-    forget() { history = []; },
-    toggleVoice() { voice = !voice; store.set("cosmo.voice", voice); return voice; },
-  };
+  return { ask, stop() { ctl?.abort(); try { speechSynthesis.cancel(); } catch {} }, toggleVoice() { voice = !voice; store.set("cosmo.voice", voice); return voice; } };
 })();
 
 /* ---------- Terminal ---------- */
@@ -460,25 +556,30 @@ const Term = (() => {
   const say = t => print(t, "t-j");
   const C = {
     "/help": ["List commands", () => Object.entries(C).forEach(([k, [d]]) => print(`${k.padEnd(13)} ${d}`, "t-sys"))],
-    "/optimize": ["Pulse the core", () => { Core.pulse("terminal"); say("Core optimized. Running on your own silicon now, boss."); }],
-    "/status": ["System report", () => {
-      print(`Engine ..... ${Engine.up ? "online" : "offline"} · ${Engine.model || "no model"}`, "t-sys");
-      print(`Brain ...... ${Brain.all.length} entries, ${Brain.open().length} open tasks`, "t-sys");
-      print(`Monitor .... layout ${Monitor.v.layout}% · recall ${Monitor.v.recall}/20 · packs ${Monitor.v.packs}/4 · devlog ${Monitor.v.devlog}%`, "t-sys");
+    "/brief": ["Today's briefing, fresh", () => { Briefing.load(true); say("Writing today's briefing. Check the panel above."); location.hash = "briefing"; }],
+    "/news": ["Refresh headlines", () => { News.load(true); say("Pulling fresh headlines."); }],
+    "/do": ["/do <action>  phone action", async a => { if (!a) return print("Try: /do torch on · /do battery · /do volume 8 · /do open tiktok", "t-sys"); try { print((await api("/api/act", { cmd: a })).result, "t-sys"); } catch (e) { print(e.message, "t-err"); } }],
+    "/status": ["System report", async () => {
+      const s = await api("/api/status?refresh=1").catch(() => null);
+      if (!s) return print("Server offline.", "t-err");
+      (s.engines || []).forEach(e => print(`${e.name.padEnd(8)} ${e.up ? "online" : e.url ? "offline" : "not set"} ${e.url || ""}`, "t-sys"));
+      print(`Active   ${s.engine ? s.engine.name + " · " + s.engine.model : "none"}`, "t-sys");
+      print(`Phone control ${s.phone_api ? "ready" : "needs Termux:API"} · Gumroad ${s.gumroad ? "connected" : "not connected"}`, "t-sys");
+      print(`Brain ${Brain.all.length} entries, ${Brain.open().length} open`, "t-sys");
     }],
-    "/model": ["/model [name]  show or switch model", a => {
-      if (!a) { print(`Installed: ${Engine.models.join(", ") || "none"}`, "t-sys"); return print(`Using: ${Engine.model}`, "t-sys"); }
-      if (!Engine.models.includes(a)) return print(`Not installed. In Termux: ollama pull ${a}`, "t-err");
-      Engine.setModel(a); say(`Switched to ${a}.`);
+    "/model": ["/model [name]  show or switch model", async a => {
+      const s = await api("/api/status?refresh=1").catch(() => null); if (!s?.engine) return print("No engine running.", "t-err");
+      if (!a) return print(`${s.engine.name}: ${s.engine.models.join(", ")} (using ${s.engine.model})`, "t-sys");
+      try { await api("/api/model", { model: a }); say(`Switched to ${a}.`); Status.check(true); } catch (e) { print(e.message, "t-err"); }
     }],
     "/brain": ["/brain <text>  add a task", a => { if (!a) return print("Usage: /brain post HyDeck clip", "t-err"); Brain.add(a, "task"); say("Stored."); }],
     "/focus": ["/focus [min]  focus timer", a => {
       const min = clamp(parseInt(a) || 25, 1, 120); clearInterval(focusT); focusEnd = Date.now() + min * 60000; $("#c-focus").hidden = false;
-      const tick = () => { const l = Math.max(0, Math.round((focusEnd - Date.now()) / 1000)); $("#c-focus-t").textContent = `${pad2(Math.floor(l / 60))}:${pad2(l % 60)}`; if (!l) { clearInterval(focusT); $("#c-focus").hidden = true; say("Focus block done. Water, stretch, then tell me what shipped."); Core.pulse("focus"); } };
+      const tick = () => { const l = Math.max(0, Math.round((focusEnd - Date.now()) / 1000)); $("#c-focus-t").textContent = `${pad2(Math.floor(l / 60))}:${pad2(l % 60)}`; if (!l) { clearInterval(focusT); $("#c-focus").hidden = true; say("Focus block done. Water, stretch, then tell me what shipped."); Core.pulse("focus"); api("/api/act", { cmd: "vibrate" }).catch(() => {}); } };
       tick(); focusT = setInterval(tick, 1000); say(`${min} minutes. Phone face down. Go.`);
     }],
     "/voice": ["Read replies aloud", () => say(Cosmo.toggleVoice() ? "Voice on." : "Voice off.")],
-    "/forget": ["Clear chat memory", () => { Cosmo.forget(); say("Chat memory cleared. Brain untouched."); }],
+    "/forget": ["Clear chat history (keeps memories)", async () => { await api("/api/forget", {}); say("Chat history cleared. Long-term memories kept."); }],
     "/clear": ["Clear the terminal", () => { out.innerHTML = ""; }],
   };
   function run(raw) {
@@ -492,29 +593,28 @@ const Term = (() => {
   }
   $("#tform").addEventListener("submit", e => { e.preventDefault(); run(input.value); input.value = ""; });
   $("#stop").addEventListener("click", () => Cosmo.stop());
-  $("#quick").innerHTML = ["/status", "/focus 25", "/voice", "/model", "/optimize"].map(c => `<button type="button" class="btn sm" data-c="${c}">${c}</button>`).join("");
+  $("#quick").innerHTML = ["What's the news?", "Plan my day", "/brief", "/status", "/focus 25", "/voice"].map(c => `<button type="button" class="btn sm" data-c="${c}">${c}</button>`).join("");
   $("#quick").addEventListener("click", e => { const b = e.target.closest("[data-c]"); if (b) run(b.dataset.c); });
 
-  // Voice input. Chrome's speech recognition sends audio to Google, so it needs
-  // internet even though COSMO's thinking stays on the phone. Hidden if unsupported.
+  // Voice input via Chrome (uses Google's speech service, so it needs internet).
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (SR) {
     const mic = $("#mic"); mic.hidden = false; let rec = null;
     mic.addEventListener("click", () => {
       if (rec) { rec.stop(); return; }
-      rec = new SR(); rec.lang = "en-US"; rec.interimResults = true;
-      mic.classList.add("live");
+      rec = new SR(); rec.lang = "en-US"; rec.interimResults = true; mic.classList.add("live");
       rec.onresult = e => { input.value = [...e.results].map(r => r[0].transcript).join(""); };
       rec.onend = () => { mic.classList.remove("live"); rec = null; if (input.value.trim()) { run(input.value); input.value = ""; } };
-      rec.onerror = e => print(e.error === "not-allowed" ? "Mic blocked. Allow microphone for 127.0.0.1 in Chrome settings." : e.error === "network" ? "Voice input needs internet (it uses Google's speech service). Type instead." : `Mic error: ${e.error}`, "t-err");
+      rec.onerror = e => print(e.error === "not-allowed" ? "Mic blocked. Allow microphone for 127.0.0.1 in Chrome settings." : e.error === "network" ? "Voice input needs internet. Type instead." : `Mic error: ${e.error}`, "t-err");
       rec.start();
     });
   }
-
-  print("JARVIS OS Local · COSMO runs on this phone", "t-sys");
-  say("Online, boss. Talk to me normally. Everything stays on this device.");
+  print("JARVIS OS · COSMO living on this phone", "t-sys");
   return { print };
 })();
+
+/* ---------- COSMO speaks first ---------- */
+api("/api/greet").then(g => { $("#greet").textContent = g.text; Term.print(g.text, "t-j"); }).catch(() => { $("#greet").textContent = "Start me from Termux: cosmo"; });
 </script>
 </body>
 </html>

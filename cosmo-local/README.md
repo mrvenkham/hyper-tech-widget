@@ -1,61 +1,113 @@
-# COSMO Local
+# COSMO: living on your phone
 
-JARVIS OS with COSMO running **on your Android phone**. The AI model, your
-notes and your tasks all stay on the device. It works in airplane mode.
+COSMO is a coach that runs on your Android phone, with your laptop as an optional
+faster brain. It reads the news, checks the weather, sales and commits, plans
+your day, remembers you, sends notifications and controls a few safe phone
+features.
 
-| Part | What runs it |
-|---|---|
-| The AI (COSMO's brain) | [Ollama](https://ollama.com) inside Termux, at `127.0.0.1:11434` |
-| The screen (JARVIS OS) | `index.html`, served by Python at `127.0.0.1:8080` |
-| Your notes and tasks | Chrome's storage for `127.0.0.1:8080`, on the phone |
+```
+JARVIS page (Chrome) ──► COSMO server (Termux, 127.0.0.1:8080)
+                              ├─ AI: laptop Ollama (RTX 5070) → falls back to phone Ollama
+                              ├─ News: BBC, Al Jazeera, FMT, Malay Mail, The Verge, TechCrunch, Hacker News
+                              ├─ Weather: Open-Meteo · Sales: Gumroad · Commits: GitHub
+                              ├─ Phone: notifications, torch, volume, brightness, voice (Termux:API)
+                              └─ Your data: ~/cosmo/data/*.json (brain, memories, chat)
+```
 
-## Install (about 30–60 minutes, mostly downloading)
+## 1. Install on the phone
 
-1. **Install Termux from F-Droid** (https://f-droid.org/packages/com.termux/).
-   Don't use the Play Store version; it's outdated and its packages break.
-2. Open Termux and paste these two lines:
-
+1. From **F-Droid**, install **Termux**, **Termux:API**, **Termux:Boot** and
+   **Termux:Widget**. Open each one once. They must all come from F-Droid.
+2. In Termux:
    ```bash
    curl -fsSLo install.sh https://raw.githubusercontent.com/mrvenkham/hyper-tech-widget/claude/hydeck-dashboard-frontend-pvipz2/cosmo-local/install.sh
    bash install.sh
    ```
+   Running it again later is safe; it keeps your data and settings.
+3. Type `cosmo`. JARVIS opens in Chrome.
+4. When Android asks, allow Termux:API to show notifications.
 
-   The installer picks a model by RAM: under 5 GB → `gemma3:1b`,
-   5–6 GB → `llama3.2:3b`, 7 GB+ → `gemma3:4b`. To choose yourself:
-   `bash install.sh qwen2.5:1.5b`.
-3. When it says **Done**, type `cosmo`. Chrome opens JARVIS OS.
+## 2. Laptop brain (optional, much faster)
 
-## Daily use
+On the Windows laptop:
+1. Install Ollama from https://ollama.com/download
+2. Download `laptop/setup-laptop.ps1` from this folder, right-click PowerShell →
+   **Run as administrator**, then:
+   ```powershell
+   Set-ExecutionPolicy -Scope Process Bypass; .\setup-laptop.ps1
+   ```
+3. It prints a line like `cosmo laptop 192.168.1.23 qwen2.5:7b`. Type that in Termux.
 
-| Do this | How |
+The laptop and phone must be on the same **private** Wi-Fi. The firewall rule
+only opens on private networks, so Ollama is never exposed on public or school Wi-Fi.
+When the laptop is off, COSMO uses the phone model automatically.
+The header shows which one is thinking.
+
+## 3. Connect Gumroad (optional)
+
+Gumroad → Settings → Advanced → Applications → create an application → generate an
+access token. Then in Termux: `cosmo gumroad YOUR_TOKEN`.
+The token is stored only in `~/cosmo/config.json` on your phone.
+
+## Commands
+
+| In Termux | Does |
 |---|---|
-| Start COSMO | Open Termux, type `cosmo` |
-| Stop COSMO (saves battery) | In Termux, type `cosmo stop` |
-| Home-screen icon | In Chrome on the JARVIS page: ⋮ → Add to Home screen. Termux still has to be running. |
-| Switch model | `ollama pull <name>` in Termux, then `/model <name>` in JARVIS |
-| Get the newest JARVIS page | `cosmo update`, then reload the page |
+| `cosmo` | Start and open JARVIS |
+| `cosmo stop` | Stop everything (saves battery) |
+| `cosmo talk` | Hands-free voice conversation. Say "stop" to end. |
+| `cosmo laptop <ip> [model]` / `cosmo laptop off` | Use or stop using the laptop brain |
+| `cosmo gumroad <token>` / `cosmo gumroad off` | Connect Gumroad sales |
+| `cosmo city Jitra 6.268 100.421` | Change the weather city |
+| `cosmo status` · `cosmo logs` · `cosmo update` | Check, debug, update |
 
-## Know the limits
+| In JARVIS | Does |
+|---|---|
+| Type normally | Talk to COSMO |
+| "What's the news?" | Summary of real headlines, each tagged with its source |
+| "Plan my day" | A plan from your tasks, sales, commits and weather |
+| "Turn on the torch" | Phone actions from the safe list |
+| `/brief` · `/news` · `/do battery` · `/status` · `/model` · `/focus 25` · `/voice` · `/forget` | Shortcuts |
 
-- **Small models are less smart.** A 1–4B model on a phone is fine for
-  planning and coaching, but weaker at code and facts than the cloud COSMO.
-- **Battery and heat.** Running a model works the phone hard. Stop it when
-  you're done.
-- **Voice input (MIC) is not local.** Chrome's speech recognition sends audio
-  to Google, so it needs internet. Typing and voice output (`/voice`) stay on
-  the phone.
-- **Android may kill Termux** in the background. `cosmo` takes a wake lock to
-  prevent that. If it still happens, exclude Termux from battery optimization
-  in Android settings.
-- **It's not a system assistant.** There's no wake word, and it can't read
-  notifications or control other apps. That needs a native Android app.
+Home screen: long-press → Widgets → **Termux:Widget** → pick **COSMO** or **COSMO Talk**.
+
+## Notifications
+
+| When | What |
+|---|---|
+| 06:45 | Morning briefing: news, weather, today's top 3 |
+| 16:30 | Check-in on your oldest open task |
+| 21:30 | Evening recap |
+| 22:30–06:30 | Quiet hours: nothing is sent |
+
+Change the times in `~/cosmo/config.json` under `"schedule"`, then `cosmo stop` and `cosmo`.
+
+## How "authentic news" works
+
+- COSMO only gets headlines from the named outlets in `config.json`, and is told
+  to use nothing else and to name the source of each item.
+- The **Live News** panel shows the original headlines with links. Tap one to read
+  it on the outlet's own site.
+- An AI summary can still get details wrong, especially a small phone model.
+  For anything important, read the original article.
+
+## What COSMO can't do
+
+- It isn't conscious and doesn't think between messages. It feels alive because
+  of memory, greetings and check-ins.
+- It can't tap or type inside other apps, and there's no "Hey COSMO" wake word.
+  Both need a native Android app.
+- It won't send texts, make calls or delete files. That's deliberate.
+- Voice input uses Google's speech service, so it needs internet. Everything
+  else works offline except news, weather and sales.
 
 ## Troubleshooting
 
 | Problem | Fix |
 |---|---|
-| `pkg install ollama` fails | The installer retries through the TUR repo. If both fail, run `pkg update` and try again later. |
-| JARVIS says **Engine Offline** | Termux isn't running COSMO. Type `cosmo`. |
-| JARVIS says **No model** | `ollama pull llama3.2:3b` |
-| Replies are very slow | Check the ⚡ line after each reply. Under ~5 tokens/s, use a smaller model: `ollama pull qwen2.5:1.5b` or `gemma3:1b`, then `/model <name>`. Close other apps and let the phone cool down. |
-| Notes vanished | They live in Chrome's storage for `127.0.0.1:8080`. Clearing Chrome's site data deletes them. |
+| JARVIS says **Offline** | In Termux: `cosmo` |
+| Brain says **No engine** | `ollama pull llama3.2:3b`, or check the laptop is on |
+| Laptop not used | Same Wi-Fi? Wi-Fi set to Private on Windows? Then `cosmo status` |
+| No news | Check the internet. `cosmo logs` lists the feeds that failed. Edit `feeds` in `config.json` to swap sources. |
+| No notifications | Open Termux:API once and allow notifications. Turn off battery optimization for Termux. |
+| Slow replies | Use the laptop brain, or a smaller phone model: `ollama pull qwen2.5:1.5b`, then `/model qwen2.5:1.5b` |
