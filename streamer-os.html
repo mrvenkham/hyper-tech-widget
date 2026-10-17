@@ -1,0 +1,1319 @@
+<title>HyDeck Streamer OS</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<meta name="description" content="HyDeck Streamer OS: a control deck for live creators. Stream analytics, live chat, a music deck and quick actions in one screen.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=Barlow:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<!-- Tailwind (play CDN, pinned) handles layout utilities. Component look lives in the <style> block below. -->
+<script src="https://cdn.tailwindcss.com/3.4.17"></script>
+
+<style>
+/* Layout: sticky status header, then a 12-column deck — analytics (8) + chat (4, two rows tall),
+   music (4) + quick actions (4) underneath. Collapses to 2 columns on tablets, 1 on phones. */
+:root {
+  --bg: #0d0e12;
+  --panel: rgba(20, 22, 30, 0.66);
+  --panel-solid: #14161e;
+  --line: rgba(130, 150, 190, 0.16);
+  --line-hot: rgba(0, 240, 255, 0.38);
+  --fg: #e7ecf6;
+  --muted: #8d96aa;
+  --dim: #596176;
+  --cyan: #00f0ff;
+  --purple: #b44dff;
+  --venom: #3dff6e;
+  --warn: #ffb020;
+  --danger: #ff3864;
+  --font-display: "Chakra Petch", "Rajdhani", ui-sans-serif, system-ui, sans-serif;
+  --font-body: "Barlow", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color-scheme: dark;
+}
+
+html, body { background: var(--bg); color: var(--fg); }
+body {
+  font-family: var(--font-body);
+  font-size: 15px;
+  line-height: 1.45;
+  min-height: 100%;
+  -webkit-font-smoothing: antialiased;
+}
+/* Ambient backdrop: faint scan grid + two neon glows. Fixed, purely decorative. */
+body::after {
+  content: "";
+  position: fixed; inset: 0; z-index: -1; pointer-events: none;
+  background:
+    radial-gradient(60rem 30rem at 85% -10%, rgba(180, 77, 255, 0.16), transparent 60%),
+    radial-gradient(50rem 30rem at -10% 20%, rgba(0, 240, 255, 0.10), transparent 60%),
+    linear-gradient(rgba(130,150,190,0.05) 1px, transparent 1px) 0 0 / 100% 32px,
+    linear-gradient(90deg, rgba(130,150,190,0.05) 1px, transparent 1px) 0 0 / 32px 100%,
+    var(--bg);
+}
+body::before {
+  content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px);
+  z-index: 40; background: var(--panel-solid);
+}
+
+.gutter {
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+
+/* ---------- Header ---------- */
+.topbar {
+  position: sticky; top: env(safe-area-inset-top, 0px); z-index: 30;
+  background: rgba(13, 14, 18, 0.78);
+  backdrop-filter: blur(16px) saturate(150%);
+  -webkit-backdrop-filter: blur(16px) saturate(150%);
+  border-bottom: 1px solid var(--line);
+}
+.brandmark {
+  width: 38px; height: 38px; flex: none;
+  display: grid; place-items: center;
+  border: 1px solid var(--line-hot);
+  background: linear-gradient(135deg, rgba(0,240,255,0.18), rgba(180,77,255,0.18));
+  clip-path: polygon(0 0, calc(100% - 9px) 0, 100% 9px, 100% 100%, 9px 100%, 0 calc(100% - 9px));
+  font-family: var(--font-display); font-weight: 700; color: var(--cyan); letter-spacing: 0.02em;
+}
+.ws-name { font-family: var(--font-display); font-weight: 700; font-size: 1.05rem; letter-spacing: 0.02em; }
+.ws-name em { font-style: normal; color: var(--cyan); }
+.ws-sub { font-family: var(--font-mono); font-size: 0.72rem; color: var(--muted); }
+
+.status-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.chip {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 5px 10px;
+  border: 1px solid var(--line);
+  background: rgba(255,255,255,0.025);
+  font-family: var(--font-mono); font-size: 0.72rem; color: var(--muted);
+  white-space: nowrap; font-variant-numeric: tabular-nums;
+}
+.chip b { color: var(--fg); font-weight: 600; }
+.dot { width: 7px; height: 7px; border-radius: 50%; background: var(--dim); flex: none; }
+.dot.ok { background: var(--venom); box-shadow: 0 0 8px var(--venom); }
+.dot.warn { background: var(--warn); box-shadow: 0 0 8px var(--warn); }
+.dot.bad { background: var(--danger); box-shadow: 0 0 8px var(--danger); }
+
+.live-pill {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 5px 12px;
+  font-family: var(--font-display); font-weight: 700; font-size: 0.8rem; letter-spacing: 0.14em;
+  color: #fff; background: var(--danger);
+  box-shadow: 0 0 18px rgba(255, 56, 100, 0.55);
+}
+.live-pill .dot { background: #fff; box-shadow: none; animation: blink 1.2s steps(2) infinite; }
+.live-pill.off { background: transparent; color: var(--muted); border: 1px solid var(--line); box-shadow: none; }
+.live-pill.off .dot { background: var(--dim); animation: none; }
+@keyframes blink { 50% { opacity: 0.25; } }
+
+/* ---------- Panels ---------- */
+.panel {
+  position: relative;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  backdrop-filter: blur(14px) saturate(140%);
+  -webkit-backdrop-filter: blur(14px) saturate(140%);
+  display: flex; flex-direction: column;
+  min-width: 0;
+}
+/* Corner brackets: the deck's signature. Top-left and bottom-right only. */
+.panel::before, .panel::after {
+  content: ""; position: absolute; width: 14px; height: 14px; pointer-events: none;
+  border-color: var(--cyan); border-style: solid; opacity: 0.8;
+}
+.panel::before { top: -1px; left: -1px; border-width: 2px 0 0 2px; }
+.panel::after { bottom: -1px; right: -1px; border-width: 0 2px 2px 0; }
+.panel.purple::before, .panel.purple::after { border-color: var(--purple); }
+.panel.venom::before, .panel.venom::after { border-color: var(--venom); }
+
+.panel-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--line);
+}
+.panel-title {
+  font-family: var(--font-display); font-weight: 600; font-size: 1rem;
+  letter-spacing: 0.06em; text-transform: uppercase;
+}
+.panel-tag {
+  font-family: var(--font-mono); font-size: 0.68rem; letter-spacing: 0.08em;
+  color: var(--dim); text-transform: uppercase;
+}
+.panel-body { padding: 16px 18px 18px; display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+
+/* ---------- Buttons ---------- */
+.btn {
+  position: relative; overflow: hidden;
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  padding: 8px 14px;
+  border: 1px solid var(--line);
+  background: rgba(255,255,255,0.03);
+  color: var(--fg);
+  font-family: var(--font-display); font-weight: 600; font-size: 0.82rem; letter-spacing: 0.05em;
+  cursor: pointer; user-select: none;
+  transition: border-color .18s, background-color .18s, color .18s, box-shadow .18s, transform .08s;
+}
+.btn:hover { border-color: var(--line-hot); background: rgba(0,240,255,0.07); box-shadow: 0 0 16px rgba(0,240,255,0.18), inset 0 0 12px rgba(0,240,255,0.06); }
+.btn:active { transform: scale(0.96); }
+.btn:focus-visible, .seg button:focus-visible, .pad:focus-visible, input:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+.btn[disabled] { opacity: 0.5; cursor: not-allowed; }
+.btn.is-on { border-color: var(--cyan); color: var(--cyan); background: rgba(0,240,255,0.10); box-shadow: 0 0 14px rgba(0,240,255,0.25); }
+.btn.danger.is-on { border-color: var(--danger); color: var(--danger); background: rgba(255,56,100,0.10); box-shadow: 0 0 14px rgba(255,56,100,0.3); }
+.btn.icon { padding: 0; width: 40px; height: 40px; }
+.btn.icon.lg { width: 54px; height: 54px; border-color: var(--cyan); color: var(--cyan); }
+.btn.icon.lg:hover { background: rgba(0,240,255,0.14); box-shadow: 0 0 22px rgba(0,240,255,0.4); }
+.btn svg { width: 18px; height: 18px; flex: none; }
+.btn.icon.lg svg { width: 22px; height: 22px; }
+
+.ripple {
+  position: absolute; border-radius: 50%; pointer-events: none;
+  background: rgba(0, 240, 255, 0.35);
+  transform: scale(0); animation: ripple .55s ease-out forwards;
+}
+@keyframes ripple { to { transform: scale(1); opacity: 0; } }
+
+/* Segmented toggle (chart range, scene switcher) */
+.seg { display: inline-flex; border: 1px solid var(--line); background: rgba(0,0,0,0.25); }
+.seg button {
+  padding: 6px 12px;
+  font-family: var(--font-mono); font-size: 0.72rem; letter-spacing: 0.06em; color: var(--muted);
+  transition: color .15s, background-color .15s, box-shadow .15s;
+}
+.seg button + button { border-left: 1px solid var(--line); }
+.seg button:hover { color: var(--fg); background: rgba(255,255,255,0.04); }
+.seg button[aria-pressed="true"] { color: var(--bg); background: var(--cyan); box-shadow: 0 0 14px rgba(0,240,255,0.45); }
+
+/* ---------- Analytics ---------- */
+.kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); }
+.kpi { background: var(--panel-solid); padding: 12px 14px; min-width: 0; }
+.kpi-label { font-family: var(--font-mono); font-size: 0.66rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
+.kpi-value { font-family: var(--font-display); font-weight: 700; font-size: 1.7rem; line-height: 1.15; font-variant-numeric: tabular-nums; }
+.kpi-delta { font-family: var(--font-mono); font-size: 0.7rem; font-variant-numeric: tabular-nums; color: var(--muted); }
+.kpi-delta.up { color: var(--venom); }
+.kpi-delta.down { color: var(--danger); }
+@media (max-width: 640px) { .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+.chart-wrap { position: relative; height: 240px; }
+.chart-wrap canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.chart-tip {
+  position: absolute; pointer-events: none; z-index: 2;
+  padding: 6px 9px; background: rgba(13,14,18,0.92); border: 1px solid var(--line-hot);
+  font-family: var(--font-mono); font-size: 0.72rem; white-space: nowrap; font-variant-numeric: tabular-nums;
+  transform: translate(-50%, -115%);
+}
+.chart-tip b { color: var(--cyan); font-weight: 600; }
+
+.meters { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; }
+@media (max-width: 760px) { .meters { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.meter-top { display: flex; justify-content: space-between; align-items: baseline; gap: 6px; font-family: var(--font-mono); font-size: 0.68rem; color: var(--muted); letter-spacing: 0.06em; }
+.meter-top b { color: var(--fg); font-weight: 600; font-variant-numeric: tabular-nums; }
+.meter-bar { height: 6px; margin-top: 6px; background: rgba(255,255,255,0.06); position: relative; overflow: hidden; }
+.meter-fill { position: absolute; inset: 0 auto 0 0; width: 0; background: var(--venom); box-shadow: 0 0 10px currentColor; transition: width .6s ease, background-color .3s; color: var(--venom); }
+.meter-fill.warn { background: var(--warn); color: var(--warn); }
+.meter-fill.bad { background: var(--danger); color: var(--danger); }
+
+/* ---------- Chat ---------- */
+.chat-feed {
+  height: 440px; overflow-y: auto; overscroll-behavior: contain;
+  padding: 10px 18px; display: flex; flex-direction: column; gap: 2px;
+  font-size: 0.9rem; scrollbar-width: thin; scrollbar-color: var(--dim) transparent;
+}
+@media (min-width: 1280px) {
+  .chat-feed { height: auto; flex: 1 1 0; min-height: 260px; }
+}
+.msg { padding: 4px 0; overflow-wrap: anywhere; animation: slideIn .25s ease-out; }
+.msg time { font-family: var(--font-mono); font-size: 0.68rem; color: var(--dim); margin-right: 6px; font-variant-numeric: tabular-nums; }
+.msg .user { font-weight: 600; }
+.badge {
+  display: inline-block; margin-right: 5px; padding: 0 5px;
+  font-family: var(--font-mono); font-size: 0.6rem; font-weight: 600; letter-spacing: 0.06em; line-height: 1.5;
+  vertical-align: 1px; border: 1px solid currentColor;
+}
+.badge.mod { color: var(--venom); }
+.badge.sub { color: var(--purple); }
+.badge.vip { color: var(--cyan); }
+.badge.you { color: var(--warn); }
+.event {
+  margin: 6px 0; padding: 8px 10px;
+  border: 1px solid var(--line); background: rgba(180,77,255,0.07);
+  font-size: 0.85rem; animation: slideIn .3s ease-out;
+}
+.event .kind { font-family: var(--font-mono); font-size: 0.64rem; letter-spacing: 0.12em; text-transform: uppercase; margin-right: 6px; }
+.event.follow .kind { color: var(--cyan); }
+.event.sub .kind { color: var(--purple); }
+.event.raid { background: rgba(61,255,110,0.07); } .event.raid .kind { color: var(--venom); }
+.event.tip { background: rgba(255,176,32,0.07); } .event.tip .kind { color: var(--warn); }
+.event.sys { background: rgba(0,240,255,0.06); } .event.sys .kind { color: var(--cyan); }
+@keyframes slideIn { from { opacity: 0; transform: translateY(6px); } }
+
+.chat-jump {
+  position: absolute; left: 50%; bottom: 76px; transform: translateX(-50%);
+  padding: 6px 12px; background: var(--cyan); color: var(--bg);
+  font-family: var(--font-display); font-weight: 700; font-size: 0.75rem; letter-spacing: 0.06em;
+  box-shadow: 0 0 18px rgba(0,240,255,0.5); cursor: pointer;
+}
+.chat-form { display: flex; gap: 8px; padding: 12px 18px 16px; border-top: 1px solid var(--line); }
+.field {
+  flex: 1; min-width: 0;
+  padding: 9px 12px; background: rgba(0,0,0,0.35); border: 1px solid var(--line); color: var(--fg);
+  font-family: var(--font-body); font-size: 0.92rem;
+  transition: border-color .15s, box-shadow .15s;
+}
+.field::placeholder { color: var(--dim); }
+.field:focus { border-color: var(--line-hot); box-shadow: 0 0 12px rgba(0,240,255,0.18); outline: none; }
+
+/* ---------- Music ---------- */
+.np { display: grid; grid-template-columns: 84px minmax(0, 1fr); gap: 14px; align-items: center; }
+.cover {
+  width: 84px; height: 84px; position: relative; overflow: hidden;
+  border: 1px solid var(--line-hot);
+  background: conic-gradient(from var(--spin, 0deg), var(--cyan), var(--purple), var(--venom), var(--cyan));
+}
+.cover::after { content: ""; position: absolute; inset: 12px; background: var(--panel-solid); border-radius: 50%; box-shadow: inset 0 0 0 10px rgba(13,14,18,0.6); }
+.cover::before { content: ""; position: absolute; z-index: 1; width: 10px; height: 10px; left: 37px; top: 37px; border-radius: 50%; background: var(--cyan); box-shadow: 0 0 10px var(--cyan); }
+.np-title { font-family: var(--font-display); font-weight: 700; font-size: 1.15rem; line-height: 1.2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.np-artist { color: var(--muted); font-size: 0.88rem; }
+.np-meta { font-family: var(--font-mono); font-size: 0.68rem; color: var(--dim); letter-spacing: 0.06em; margin-top: 4px; }
+.viz { width: 100%; height: 64px; display: block; }
+.progress { height: 18px; display: flex; align-items: center; cursor: pointer; }
+.progress-track { flex: 1; height: 4px; background: rgba(255,255,255,0.08); position: relative; }
+.progress-fill { position: absolute; inset: 0 auto 0 0; width: 0; background: linear-gradient(90deg, var(--purple), var(--cyan)); box-shadow: 0 0 10px rgba(0,240,255,0.5); }
+.progress-fill::after { content: ""; position: absolute; right: -5px; top: -4px; width: 10px; height: 12px; background: var(--cyan); }
+.times { display: flex; justify-content: space-between; font-family: var(--font-mono); font-size: 0.7rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.transport { display: flex; align-items: center; justify-content: center; gap: 12px; }
+.vol { display: flex; align-items: center; gap: 10px; }
+.vol output { font-family: var(--font-mono); font-size: 0.72rem; color: var(--muted); width: 3ch; text-align: right; font-variant-numeric: tabular-nums; }
+
+input[type="range"] { -webkit-appearance: none; appearance: none; flex: 1; min-width: 0; height: 22px; background: transparent; cursor: pointer; }
+input[type="range"]::-webkit-slider-runnable-track { height: 4px; background: linear-gradient(90deg, var(--cyan) var(--pct, 70%), rgba(255,255,255,0.1) var(--pct, 70%)); }
+input[type="range"]::-moz-range-track { height: 4px; background: rgba(255,255,255,0.1); }
+input[type="range"]::-moz-range-progress { height: 4px; background: var(--cyan); }
+input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; width: 12px; height: 16px; margin-top: -6px; background: var(--fg); border: 2px solid var(--cyan); box-shadow: 0 0 10px var(--cyan); transition: transform .12s; }
+input[type="range"]::-moz-range-thumb { width: 10px; height: 14px; border-radius: 0; background: var(--fg); border: 2px solid var(--cyan); box-shadow: 0 0 10px var(--cyan); }
+input[type="range"]:hover::-webkit-slider-thumb { transform: scale(1.2); }
+
+.queue { display: flex; flex-direction: column; border-top: 1px solid var(--line); }
+.queue button {
+  display: grid; grid-template-columns: 22px minmax(0,1fr) auto; gap: 10px; align-items: center;
+  padding: 8px 4px; text-align: left; border-bottom: 1px solid var(--line);
+  font-size: 0.86rem; color: var(--muted); transition: color .15s, background-color .15s;
+}
+.queue button:hover { color: var(--fg); background: rgba(255,255,255,0.03); }
+.queue button[aria-current="true"] { color: var(--cyan); }
+.queue .q-n, .queue .q-bpm { font-family: var(--font-mono); font-size: 0.68rem; color: var(--dim); }
+.queue .q-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ---------- Quick actions ---------- */
+.cmd { position: relative; }
+.cmd .field { width: 100%; padding-left: 36px; padding-right: 54px; font-family: var(--font-mono); font-size: 0.84rem; }
+.cmd svg { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); width: 16px; height: 16px; color: var(--dim); }
+.kbd { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); font-family: var(--font-mono); font-size: 0.66rem; color: var(--dim); border: 1px solid var(--line); padding: 1px 5px; }
+.actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.action { justify-content: flex-start; padding: 11px 12px; text-align: left; font-size: 0.8rem; }
+.action svg { color: var(--cyan); }
+.action.danger svg { color: var(--danger); }
+.action.danger:hover { border-color: rgba(255,56,100,0.6); background: rgba(255,56,100,0.08); box-shadow: 0 0 16px rgba(255,56,100,0.22); }
+.sub-label { font-family: var(--font-mono); font-size: 0.66rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); margin-bottom: 8px; }
+.scenes { display: flex; width: 100%; }
+.scenes button { flex: 1; padding: 8px 4px; }
+.pads { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.pad {
+  position: relative; overflow: hidden;
+  aspect-ratio: 1 / 0.8; max-width: 100%;
+  display: flex; flex-direction: column; justify-content: space-between; align-items: flex-start;
+  padding: 8px; border: 1px solid rgba(180,77,255,0.4); background: rgba(180,77,255,0.08);
+  font-family: var(--font-display); font-weight: 600; font-size: 0.78rem; text-align: left; color: var(--fg);
+  transition: background-color .15s, box-shadow .15s, transform .08s, border-color .15s;
+}
+.pad:hover { background: rgba(180,77,255,0.18); box-shadow: 0 0 18px rgba(180,77,255,0.4); border-color: var(--purple); }
+.pad:active, .pad.hit { transform: scale(0.94); background: rgba(180,77,255,0.35); box-shadow: 0 0 26px rgba(180,77,255,0.7); }
+.pad .k { font-family: var(--font-mono); font-size: 0.64rem; color: var(--purple); }
+.empty-cmd { grid-column: 1 / -1; font-family: var(--font-mono); font-size: 0.78rem; color: var(--muted); padding: 10px 2px; }
+
+/* ---------- Toasts ---------- */
+.toasts {
+  position: fixed; z-index: 50; display: flex; flex-direction: column; gap: 8px; align-items: flex-end;
+  right: max(16px, env(safe-area-inset-right, 0px)); bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+  max-width: calc(100vw - 32px); pointer-events: none;
+}
+.toast {
+  padding: 10px 14px; background: rgba(20,22,30,0.95); border: 1px solid var(--line-hot);
+  box-shadow: 0 0 20px rgba(0,240,255,0.2); font-size: 0.86rem;
+  animation: toastIn .25s ease-out; transition: opacity .3s, transform .3s;
+}
+.toast .kind { font-family: var(--font-mono); font-size: 0.64rem; letter-spacing: 0.12em; color: var(--cyan); margin-right: 8px; }
+.toast.out { opacity: 0; transform: translateX(12px); }
+@keyframes toastIn { from { opacity: 0; transform: translateY(8px); } }
+
+footer { font-family: var(--font-mono); font-size: 0.7rem; color: var(--dim); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
+}
+</style>
+
+<!-- ═════════════════════════════ HEADER ═════════════════════════════ -->
+<header class="topbar">
+  <div class="gutter py-3 flex flex-wrap items-center justify-between gap-3 max-w-[1600px] mx-auto">
+    <div class="flex items-center gap-3 min-w-0">
+      <div class="brandmark" aria-hidden="true">HD</div>
+      <div class="min-w-0">
+        <div class="ws-name">HyDeck <em>Core</em> v1.0</div>
+        <!-- API: GET /api/v1/workspace → { handle, plan, platform } -->
+        <div class="ws-sub" id="ws-sub">Streamer OS · @nova_static · Twitch</div>
+      </div>
+    </div>
+    <div class="status-row" aria-label="Stream status">
+      <span class="live-pill" id="live-pill"><span class="dot"></span><span id="live-text">LIVE</span></span>
+      <span class="chip">Uptime <b id="uptime">02:14:37</b></span>
+      <span class="chip"><span class="dot ok" id="obs-dot"></span>OBS <b id="obs-text">Connected</b></span>
+      <span class="chip">Bitrate <b id="hdr-bitrate">6,020 kbps</b></span>
+      <span class="chip"><span class="dot ok" id="mic-dot"></span>Mic <b id="mic-text">On</b></span>
+      <span class="chip"><b id="clock">--:--</b></span>
+    </div>
+  </div>
+</header>
+
+<!-- ═════════════════════════════ DECK ═════════════════════════════ -->
+<main class="gutter max-w-[1600px] mx-auto" style="padding-block: 20px 28px;">
+  <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-12 gap-4">
+
+    <!-- ── 1. Stream analytics ── -->
+    <section class="panel md:col-span-2 xl:col-span-8" aria-labelledby="t-analytics">
+      <div class="panel-head">
+        <div>
+          <h2 class="panel-title" id="t-analytics">Stream Analytics</h2>
+          <div class="panel-tag">Concurrent viewers · Twitch Helix</div>
+        </div>
+        <div class="seg" role="group" aria-label="Chart range">
+          <button type="button" data-range="live" aria-pressed="true">2 MIN</button>
+          <button type="button" data-range="m30" aria-pressed="false">30 MIN</button>
+          <button type="button" data-range="session" aria-pressed="false">SESSION</button>
+        </div>
+      </div>
+      <div class="panel-body">
+        <div class="kpis">
+          <div class="kpi"><div class="kpi-label">Viewers</div><div class="kpi-value" id="k-viewers">0</div><div class="kpi-delta" id="k-viewers-d">vs 2 min ago</div></div>
+          <div class="kpi"><div class="kpi-label">Peak</div><div class="kpi-value" id="k-peak">0</div><div class="kpi-delta" id="k-peak-d">this session</div></div>
+          <div class="kpi"><div class="kpi-label">Chat / min</div><div class="kpi-value" id="k-chat">0</div><div class="kpi-delta">rolling 60 s</div></div>
+          <div class="kpi"><div class="kpi-label">New follows</div><div class="kpi-value" id="k-follows">0</div><div class="kpi-delta" id="k-subs">0 subs today</div></div>
+        </div>
+        <div class="chart-wrap" id="chart-wrap">
+          <canvas id="chart" aria-label="Concurrent viewers over time" role="img"></canvas>
+          <div class="chart-tip" id="chart-tip" hidden></div>
+        </div>
+        <div>
+          <div class="sub-label">Encoder &amp; system</div>
+          <!-- API: OBS WebSocket v5 → GetStats every 1s (cpuUsage, memoryUsage, outputSkippedFrames…) -->
+          <div class="meters" id="meters"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── 2. Live chat ── -->
+    <section class="panel purple xl:col-span-4 xl:row-span-2" aria-labelledby="t-chat">
+      <div class="panel-head">
+        <div>
+          <h2 class="panel-title" id="t-chat">Live Chat</h2>
+          <div class="panel-tag" id="chat-tag">Twitch IRC · EventSub</div>
+        </div>
+        <button type="button" class="btn" id="chat-pause" aria-pressed="false">Pause feed</button>
+      </div>
+      <div class="chat-feed" id="chat-feed" aria-live="polite" aria-relevant="additions"></div>
+      <button type="button" class="chat-jump" id="chat-jump" hidden>New messages ↓</button>
+      <form class="chat-form" id="chat-form" autocomplete="off">
+        <label for="chat-input" class="sr-only">Send a chat message</label>
+        <input class="field" id="chat-input" maxlength="200" placeholder="Send a message, or try !uptime">
+        <button class="btn" type="submit">Send</button>
+      </form>
+    </section>
+
+    <!-- ── 3. Music deck ── -->
+    <section class="panel xl:col-span-4" aria-labelledby="t-music">
+      <div class="panel-head">
+        <div>
+          <h2 class="panel-title" id="t-music">Music Deck</h2>
+          <div class="panel-tag">Synthesized live · DMCA-safe</div>
+        </div>
+        <span class="chip"><span class="dot" id="music-dot"></span><b id="music-state">Paused</b></span>
+      </div>
+      <div class="panel-body">
+        <div class="np">
+          <div class="cover" id="cover" aria-hidden="true"></div>
+          <div class="min-w-0">
+            <div class="np-title" id="np-title">—</div>
+            <div class="np-artist" id="np-artist">—</div>
+            <div class="np-meta" id="np-meta">—</div>
+          </div>
+        </div>
+        <canvas class="viz" id="viz" aria-hidden="true"></canvas>
+        <div>
+          <div class="progress" id="progress" role="slider" tabindex="0" aria-label="Seek" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+            <div class="progress-track"><div class="progress-fill" id="progress-fill"></div></div>
+          </div>
+          <div class="times"><span id="t-cur">0:00</span><span id="t-dur">0:00</span></div>
+        </div>
+        <div class="transport">
+          <button type="button" class="btn icon" id="m-prev" aria-label="Previous track"></button>
+          <button type="button" class="btn icon lg" id="m-play" aria-label="Play"></button>
+          <button type="button" class="btn icon" id="m-next" aria-label="Next track"></button>
+        </div>
+        <div class="vol">
+          <button type="button" class="btn icon" id="m-mute" aria-label="Mute music" aria-pressed="false"></button>
+          <label for="m-vol" class="sr-only">Music volume</label>
+          <input type="range" id="m-vol" min="0" max="100" value="70">
+          <output id="m-vol-out" for="m-vol">70</output>
+        </div>
+        <div class="queue" id="queue" aria-label="Queue"></div>
+      </div>
+    </section>
+
+    <!-- ── 4. Quick actions ── -->
+    <section class="panel venom md:col-span-2 xl:col-span-4" aria-labelledby="t-actions">
+      <div class="panel-head">
+        <div>
+          <h2 class="panel-title" id="t-actions">Quick Actions</h2>
+          <div class="panel-tag">Command bar · OBS · Helix</div>
+        </div>
+      </div>
+      <div class="panel-body">
+        <div class="cmd">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M5 7l5 5-5 5M12 19h7"/></svg>
+          <label for="cmd-input" class="sr-only">Search commands</label>
+          <input class="field" id="cmd-input" placeholder="Type a command…  Enter to run">
+          <span class="kbd" aria-hidden="true">Ctrl K</span>
+        </div>
+        <div class="actions" id="actions"></div>
+        <div>
+          <div class="sub-label">Scene · OBS</div>
+          <div class="seg scenes" role="group" aria-label="Active scene" id="scenes"></div>
+        </div>
+        <div>
+          <div class="sub-label">Soundboard · keys 1–4</div>
+          <div class="pads" id="pads"></div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <footer class="mt-6 flex flex-wrap justify-between gap-2">
+    <span>HyDeck Core v1.0 · Streamer OS · demo data, simulated locally</span>
+    <span>Hyper Tech Widget</span>
+  </footer>
+</main>
+
+<div class="toasts" id="toasts" aria-live="polite"></div>
+
+<script>
+/* ════════════════════════════════════════════════════════════════════════════
+   HyDeck Streamer OS — client architecture
+   ────────────────────────────────────────────────────────────────────────────
+   Data flows one way:
+
+     [ DataSource ]  ──emit──▶  [ Bus ]  ──▶  [ Store ]  ──▶  [ Widgets render ]
+           ▲                                                        │
+           └────────────────── Api.action(...) ◀── user clicks ─────┘
+
+   • DataSource: today `MockSource` invents realistic events on timers.
+     In production, swap it for `LiveSource`, which opens ONE WebSocket to the
+     HyDeck backend:   wss://api.hydeck.app/v1/stream?workspace=<id>
+     The backend fans in Twitch EventSub, Twitch IRC chat and the OBS WebSocket
+     and forwards normalized events with the same shapes MockSource emits:
+       { type: "viewers", value: 1234, ts }
+       { type: "chat",    user, color, badges[], text, ts }
+       { type: "follow" | "sub" | "raid" | "tip", user, ...detail, ts }
+       { type: "system",  cpu, gpu, ram, kbps, dropped, ts }
+   • Bus: a tiny pub/sub so widgets never talk to each other directly.
+   • Store: the single source of truth that widgets read from.
+   • Api: every button calls Api.action(id, payload). Today it resolves locally;
+     later it becomes  POST /api/v1/actions/{id}  with a bearer token, and the
+     backend translates it (OBS SetCurrentProgramScene, Helix POST /clips,
+     Helix POST /channels/commercial, etc.). The UI updates optimistically and
+     the confirming event comes back over the WebSocket.
+   ════════════════════════════════════════════════════════════════════════════ */
+
+/* ---------- Bus ---------- */
+const Bus = (() => {
+  const handlers = {};
+  return {
+    on(type, fn) { (handlers[type] ||= []).push(fn); },
+    emit(type, data) { (handlers[type] || []).forEach(fn => fn(data)); },
+  };
+})();
+
+/* ---------- Store ---------- */
+// Seeded with the state a real session would load from GET /api/v1/session/current.
+const Store = {
+  live: true,
+  startedAt: Date.now() - (2 * 3600 + 14 * 60 + 37) * 1000,
+  micOn: true,
+  scene: "Gameplay",
+  shield: false,
+  viewers: 1184,
+  peak: 0,
+  follows: 47,
+  subs: 6,
+  chatTimes: [],           // timestamps of chat messages in the last 60 s
+  // Three resolutions of the same viewer series, so range switching is instant.
+  series: {
+    live:    { step: 2,   points: [] }, // 60 × 2 s   = 2 min
+    m30:     { step: 30,  points: [] }, // 60 × 30 s  = 30 min
+    session: { step: 120, points: [] }, // one point per 2 min since go-live
+  },
+  range: "live",
+};
+
+/* ---------- Api ---------- */
+// Replace the body of `action` with a fetch() once the backend exists:
+//   return fetch(`/api/v1/actions/${id}`, { method: "POST",
+//     headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
+//     body: JSON.stringify(payload) }).then(r => r.json());
+const Api = {
+  action(id, payload = {}) {
+    return new Promise(resolve => setTimeout(() => resolve({ ok: true, id, payload }), 120));
+  },
+};
+
+/* ---------- Helpers ---------- */
+const $ = s => document.querySelector(s);
+const fmt = n => Math.round(n).toLocaleString("en-US");
+const rand = (a, b) => a + Math.random() * (b - a);
+const pick = arr => arr[Math.floor(Math.random() * arr.length)];
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const pad2 = n => String(n).padStart(2, "0");
+const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+const ICONS = {
+  play:  '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 4.5v15l13-7.5z"/></svg>',
+  pause: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 4h4.5v16H6zM13.5 4H18v16h-4.5z"/></svg>',
+  prev:  '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h2.5v14H6zM20 5v14L9 12z"/></svg>',
+  next:  '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M15.5 5H18v14h-2.5zM4 5v14l11-7z"/></svg>',
+  vol:   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 9h4l5-4v14l-5-4H4z" fill="currentColor"/><path d="M16.5 8.5a5 5 0 010 7M19 6a8.5 8.5 0 010 12"/></svg>',
+  mute:  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 9h4l5-4v14l-5-4H4z" fill="currentColor"/><path d="M17 9l5 6M22 9l-5 6"/></svg>',
+  live:  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3" fill="currentColor"/><path d="M7.8 7.8a6 6 0 000 8.4M16.2 7.8a6 6 0 010 8.4M5 5a10 10 0 000 14M19 5a10 10 0 010 14"/></svg>',
+  mic:   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0014 0M12 18v3"/></svg>',
+  clip:  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M8.6 7.5L20 18M8.6 16.5L20 6"/></svg>',
+  ad:    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14"/><path d="M7 15l2-6 2 6M7.7 13h2.6M14 9v6h1.5a3 3 0 000-6z"/></svg>',
+  shield:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l8 3v6c0 4.5-3.4 8-8 9-4.6-1-8-4.5-8-9V6z"/></svg>',
+  poll:  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 20h16M7 16V9M12 16V5M17 16v-4"/></svg>',
+  marker:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 21V4h11l-2 4 2 4H6"/></svg>',
+  raid:  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 12h13M13 6l6 6-6 6"/></svg>',
+};
+
+function toast(kind, text) {
+  const el = document.createElement("div");
+  el.className = "toast";
+  el.innerHTML = `<span class="kind">${kind}</span>`;
+  el.append(document.createTextNode(text));
+  $("#toasts").append(el);
+  setTimeout(() => { el.classList.add("out"); setTimeout(() => el.remove(), 320); }, 2600);
+}
+
+// Click ripple for every .btn — gives instant visual feedback before the API answers.
+document.addEventListener("pointerdown", e => {
+  const b = e.target.closest(".btn, .pad");
+  if (!b || b.disabled || reduceMotion) return;
+  const r = b.getBoundingClientRect();
+  const size = Math.max(r.width, r.height) * 2;
+  const s = document.createElement("span");
+  s.className = "ripple";
+  s.style.cssText = `width:${size}px;height:${size}px;left:${e.clientX - r.left - size / 2}px;top:${e.clientY - r.top - size / 2}px`;
+  b.append(s);
+  setTimeout(() => s.remove(), 600);
+});
+
+/* ════════════════════ Widget 1: Analytics ════════════════════ */
+const Analytics = (() => {
+  const canvas = $("#chart"), wrap = $("#chart-wrap"), tip = $("#chart-tip");
+  const ctx = canvas.getContext("2d");
+  let hoverIdx = null;
+  const css = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+
+  // Seed history so the chart opens on a realistic, filled-in state.
+  (function seed() {
+    const sess = Store.series.session.points;
+    const n = Math.floor((Date.now() - Store.startedAt) / 120000);
+    for (let i = 0; i <= n; i++) {
+      const t = i / n;
+      sess.push(Math.round(1150 * (1 - Math.exp(-t * 5)) + Math.sin(i * 0.7) * 40 + rand(-25, 25) + (i > 30 && i < 36 ? 180 : 0)));
+    }
+    let v = 1080;
+    for (let i = 0; i < 60; i++) { v += rand(-14, 16); Store.series.m30.points.push(Math.round(v)); }
+    v = Store.series.m30.points.at(-1);
+    for (let i = 0; i < 60; i++) { v += rand(-9, 10); Store.series.live.points.push(Math.round(v)); }
+    Store.viewers = v;
+    Store.peak = Math.max(...sess, ...Store.series.m30.points, ...Store.series.live.points);
+  })();
+
+  function niceStep(span, count) {
+    const raw = span / count, mag = 10 ** Math.floor(Math.log10(raw));
+    const n = raw / mag;
+    return (n < 1.5 ? 1 : n < 3 ? 2 : n < 7 ? 5 : 10) * mag;
+  }
+
+  function ago(sec) {
+    if (sec <= 0) return "now";
+    if (sec < 60) return `−${sec}s`;
+    if (sec < 3600) return `−${Math.round(sec / 60)}m`;
+    const h = Math.floor(sec / 3600), m = Math.round((sec % 3600) / 60);
+    return m ? `−${h}h ${m}m` : `−${h}h`;
+  }
+
+  function draw() {
+    const dpr = window.devicePixelRatio || 1;
+    const w = wrap.clientWidth, h = wrap.clientHeight;
+    if (canvas.width !== Math.round(w * dpr) || canvas.height !== Math.round(h * dpr)) {
+      canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr);
+    }
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+
+    const { points: data, step } = Store.series[Store.range];
+    const P = { l: 46, r: 12, t: 10, b: 24 };
+    const cw = w - P.l - P.r, ch = h - P.t - P.b;
+    const lo = Math.min(...data), hi = Math.max(...data);
+    const st = niceStep(Math.max(hi - lo, 40), 4);
+    const yMin = Math.max(0, Math.floor(lo / st) * st), yMax = Math.ceil(hi / st) * st + (hi % st === 0 ? st : 0);
+    const X = i => P.l + (data.length < 2 ? cw : (i / (data.length - 1)) * cw);
+    const Y = v => P.t + ch - ((v - yMin) / (yMax - yMin)) * ch;
+
+    // Grid + y labels
+    ctx.font = "11px 'JetBrains Mono', monospace";
+    ctx.textBaseline = "middle";
+    ctx.textAlign = "right";
+    for (let v = yMin; v <= yMax + 0.001; v += st) {
+      ctx.strokeStyle = "rgba(130,150,190,0.12)"; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(P.l, Math.round(Y(v)) + 0.5); ctx.lineTo(w - P.r, Math.round(Y(v)) + 0.5); ctx.stroke();
+      ctx.fillStyle = css("--muted");
+      ctx.fillText(v >= 1000 ? (v / 1000).toFixed(v % 1000 ? 1 : 0) + "k" : String(v), P.l - 8, Y(v));
+    }
+    // X labels: 5 evenly spaced positions that map to real sample indices
+    ctx.textBaseline = "alphabetic";
+    const last = data.length - 1;
+    for (let k = 0; k <= 4; k++) {
+      const i = Math.round((k / 4) * last);
+      ctx.textAlign = k === 0 ? "left" : k === 4 ? "right" : "center";
+      ctx.fillStyle = css("--dim");
+      ctx.fillText(ago((last - i) * step), X(i), h - 6);
+    }
+
+    // Area + line
+    const cyan = css("--cyan");
+    const grad = ctx.createLinearGradient(0, P.t, 0, P.t + ch);
+    grad.addColorStop(0, "rgba(0,240,255,0.32)");
+    grad.addColorStop(1, "rgba(0,240,255,0)");
+    ctx.beginPath();
+    data.forEach((v, i) => i ? ctx.lineTo(X(i), Y(v)) : ctx.moveTo(X(i), Y(v)));
+    ctx.lineTo(X(last), P.t + ch); ctx.lineTo(X(0), P.t + ch); ctx.closePath();
+    ctx.fillStyle = grad; ctx.fill();
+
+    ctx.beginPath();
+    data.forEach((v, i) => i ? ctx.lineTo(X(i), Y(v)) : ctx.moveTo(X(i), Y(v)));
+    ctx.strokeStyle = cyan; ctx.lineWidth = 2; ctx.lineJoin = "round";
+    ctx.shadowColor = cyan; ctx.shadowBlur = 10; ctx.stroke(); ctx.shadowBlur = 0;
+
+    // Emphasized endpoint
+    ctx.fillStyle = cyan;
+    ctx.beginPath(); ctx.arc(X(last), Y(data[last]), 4, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = "rgba(0,240,255,0.35)"; ctx.lineWidth = 6;
+    ctx.beginPath(); ctx.arc(X(last), Y(data[last]), 7, 0, Math.PI * 2); ctx.stroke();
+
+    // Hover crosshair + tooltip
+    if (hoverIdx !== null && data[hoverIdx] !== undefined) {
+      const x = X(hoverIdx), y = Y(data[hoverIdx]);
+      ctx.strokeStyle = "rgba(231,236,246,0.35)"; ctx.lineWidth = 1; ctx.setLineDash([3, 3]);
+      ctx.beginPath(); ctx.moveTo(x, P.t); ctx.lineTo(x, P.t + ch); ctx.stroke(); ctx.setLineDash([]);
+      ctx.fillStyle = css("--bg"); ctx.strokeStyle = cyan; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(x, y, 4.5, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      tip.hidden = false;
+      tip.innerHTML = `<b>${fmt(data[hoverIdx])}</b> viewers · ${ago((last - hoverIdx) * step)}`;
+      tip.style.left = clamp(x, 80, w - 80) + "px";
+      tip.style.top = y + "px";
+    } else tip.hidden = true;
+
+    canvas._geom = { X, P, cw, n: data.length };
+  }
+
+  canvas.addEventListener("pointermove", e => {
+    const g = canvas._geom; if (!g) return;
+    const x = e.clientX - canvas.getBoundingClientRect().left;
+    hoverIdx = clamp(Math.round(((x - g.P.l) / g.cw) * (g.n - 1)), 0, g.n - 1);
+    draw();
+  });
+  canvas.addEventListener("pointerleave", () => { hoverIdx = null; draw(); });
+  new ResizeObserver(draw).observe(wrap);
+
+  document.querySelectorAll("[data-range]").forEach(b => b.addEventListener("click", () => {
+    Store.range = b.dataset.range;
+    document.querySelectorAll("[data-range]").forEach(o => o.setAttribute("aria-pressed", o === b));
+    hoverIdx = null; draw();
+  }));
+
+  // KPIs
+  let ticks = 0;
+  function renderKpis() {
+    const live = Store.series.live.points;
+    const diff = Store.viewers - live[0];
+    $("#k-viewers").textContent = fmt(Store.viewers);
+    const d = $("#k-viewers-d");
+    d.textContent = `${diff >= 0 ? "▲" : "▼"} ${fmt(Math.abs(diff))} vs 2 min ago`;
+    d.className = "kpi-delta " + (diff > 0 ? "up" : diff < 0 ? "down" : "");
+    $("#k-peak").textContent = fmt(Store.peak);
+    const now = Date.now();
+    Store.chatTimes = Store.chatTimes.filter(t => now - t < 60000);
+    $("#k-chat").textContent = Store.chatTimes.length;
+    $("#k-follows").textContent = Store.follows;
+    $("#k-subs").textContent = `${Store.subs} subs today`;
+  }
+
+  // A new viewer count arrives (from MockSource now, WebSocket later).
+  Bus.on("viewers", ({ value }) => {
+    Store.viewers = value;
+    Store.peak = Math.max(Store.peak, value);
+    const s = Store.series;
+    s.live.points.push(value); s.live.points.shift();
+    ticks++;
+    if (ticks % 15 === 0) { s.m30.points.push(value); s.m30.points.shift(); }
+    if (ticks % 60 === 0) s.session.points.push(value);
+    else s.session.points[s.session.points.length - 1] = value;
+    renderKpis(); draw();
+  });
+  Bus.on("chat", renderKpis);
+  Bus.on("follow", renderKpis);
+  Bus.on("sub", renderKpis);
+
+  // System meters
+  const METERS = [
+    { id: "cpu", label: "CPU", unit: "%", max: 100, warn: 75, bad: 90 },
+    { id: "gpu", label: "GPU", unit: "%", max: 100, warn: 85, bad: 95 },
+    { id: "ram", label: "RAM", unit: "%", max: 100, warn: 80, bad: 92 },
+    { id: "kbps", label: "UPLOAD", unit: "k", max: 6000, warn: Infinity, bad: Infinity, invert: true },
+    { id: "dropped", label: "DROPPED", unit: "%", max: 5, warn: 1, bad: 3 },
+  ];
+  $("#meters").innerHTML = METERS.map(m => `
+    <div><div class="meter-top"><span>${m.label}</span><b id="mv-${m.id}">–</b></div>
+    <div class="meter-bar"><div class="meter-fill" id="mf-${m.id}"></div></div></div>`).join("");
+
+  Bus.on("system", sys => {
+    METERS.forEach(m => {
+      const v = sys[m.id];
+      $(`#mv-${m.id}`).textContent = m.id === "kbps" ? fmt(v) : m.id === "dropped" ? v.toFixed(2) + "%" : Math.round(v) + "%";
+      const f = $(`#mf-${m.id}`);
+      f.style.width = clamp((v / m.max) * 100, 0, 100) + "%";
+      let cls = v >= m.bad ? "bad" : v >= m.warn ? "warn" : "";
+      if (m.invert) cls = !Store.live ? "" : v < 4500 ? "bad" : v < 5500 ? "warn" : "";
+      f.className = "meter-fill " + cls;
+    });
+    $("#hdr-bitrate").textContent = Store.live ? `${fmt(sys.kbps)} kbps` : "—";
+  });
+
+  renderKpis();
+  return { draw, renderKpis };
+})();
+
+/* ════════════════════ Widget 2: Live chat ════════════════════ */
+const Chat = (() => {
+  const feed = $("#chat-feed"), jump = $("#chat-jump");
+  let paused = false, pinned = true;
+  const MAX = 120;
+
+  const time = () => { const d = new Date(); return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`; };
+  const atBottom = () => feed.scrollHeight - feed.scrollTop - feed.clientHeight < 40;
+
+  function append(node) {
+    feed.append(node);
+    while (feed.children.length > MAX) feed.firstChild.remove();
+    if (pinned) feed.scrollTop = feed.scrollHeight;
+    else jump.hidden = false;
+  }
+
+  function message({ user, color, badges = [], text }) {
+    const el = document.createElement("div");
+    el.className = "msg";
+    el.innerHTML = `<time>${time()}</time>${badges.map(b => `<span class="badge ${b}">${b.toUpperCase()}</span>`).join("")}<span class="user" style="color:${color}"></span>: `;
+    el.querySelector(".user").textContent = user;
+    el.append(document.createTextNode(text));
+    append(el);
+  }
+
+  function event(kind, label, text) {
+    const el = document.createElement("div");
+    el.className = `event ${kind}`;
+    el.innerHTML = `<span class="kind">${label}</span>`;
+    el.append(document.createTextNode(text));
+    append(el);
+  }
+
+  feed.addEventListener("scroll", () => { pinned = atBottom(); if (pinned) jump.hidden = true; });
+  jump.addEventListener("click", () => { feed.scrollTop = feed.scrollHeight; pinned = true; jump.hidden = true; });
+
+  $("#chat-pause").addEventListener("click", e => {
+    paused = !paused;
+    e.currentTarget.textContent = paused ? "Resume feed" : "Pause feed";
+    e.currentTarget.setAttribute("aria-pressed", paused);
+    e.currentTarget.classList.toggle("is-on", paused);
+  });
+
+  // Outgoing message. API: POST /api/v1/chat { text } → backend sends via Twitch IRC.
+  $("#chat-form").addEventListener("submit", e => {
+    e.preventDefault();
+    const input = $("#chat-input"), text = input.value.trim();
+    if (!text) return;
+    input.value = "";
+    message({ user: "nova_static", color: "#ffb020", badges: ["you"], text });
+    Store.chatTimes.push(Date.now());
+    Api.action("chat.send", { text });
+    pinned = true; feed.scrollTop = feed.scrollHeight;
+    const cmd = text.toLowerCase();
+    const bot = t => setTimeout(() => message({ user: "HyBot", color: "#00f0ff", badges: ["mod"], text: t }), 500);
+    if (cmd === "!uptime") bot(Store.live ? `Live for ${Header.uptimeText(true)}.` : "The stream is offline.");
+    else if (cmd === "!song") bot(`Now playing: ${Music.current().title} by ${Music.current().artist}.`);
+    else if (cmd === "!scene") bot(`Current scene: ${Store.scene}.`);
+    else if (cmd.startsWith("!")) bot("Commands: !uptime, !song, !scene");
+  });
+
+  Bus.on("chat", m => { if (!paused) message(m); });
+  Bus.on("follow", e => event("follow", "Follow", `${e.user} followed. Welcome!`));
+  Bus.on("sub", e => event("sub", "Sub", `${e.user} subscribed at Tier ${e.tier} · ${e.months} month${e.months > 1 ? "s" : ""}`));
+  Bus.on("raid", e => event("raid", "Raid", `${e.user} is raiding with ${e.count} viewers`));
+  Bus.on("tip", e => event("tip", "Tip", `${e.user} tipped $${e.amount.toFixed(2)}: "${e.note}"`));
+  Bus.on("notice", e => event("sys", e.label, e.text));
+
+  return { message, event };
+})();
+
+/* ════════════════════ Widget 3: Music deck (Web Audio synth) ════════════════════ */
+// Tracks are generated in the browser, so nothing here can trigger a copyright strike.
+// API: a real build would read the queue from GET /api/v1/music/queue and could also
+// drive Spotify/YouTube Music via their SDKs. Playback state is broadcast to overlays
+// with  PUT /api/v1/overlay/now-playing { title, artist, progress }.
+const Music = (() => {
+  const TRACKS = [
+    { title: "Neon Overdrive", artist: "VOLTWAVE", bpm: 118, root: 55, dur: 96,
+      kick: [0,4,8,12], snare: [4,12], hat: [2,6,10,14],
+      bass: [0,null,0,12, null,0,null,3, 0,null,0,12, null,7,null,5],
+      lead: [12,null,15,null, 19,null,15,null, 12,null,15,19, 24,null,22,null] },
+    { title: "Night Market Run", artist: "Kairo Syn", bpm: 96, root: 49, dur: 102,
+      kick: [0,6,8,11], snare: [4,12], hat: [0,2,4,6,8,10,12,14],
+      bass: [0,null,null,0, null,null,5,null, 3,null,null,3, null,null,7,null],
+      lead: [null,15,null,12, null,10,null,12, null,15,null,17, null,19,null,null] },
+    { title: "Glitch Halo", artist: "PXL//GHOST", bpm: 128, root: 41.2, dur: 90,
+      kick: [0,4,8,12], snare: [4,12,14], hat: [1,2,3,5,6,7,9,10,11,13,15],
+      bass: [0,0,12,0, 0,12,0,10, 0,0,12,0, 7,null,5,null],
+      lead: [24,22,19,15, 24,22,19,15, 27,24,22,19, 27,24,22,24] },
+    { title: "Low Orbit Lounge", artist: "Mira Lumen", bpm: 84, root: 61.7, dur: 110,
+      kick: [0,10], snare: [8], hat: [4,12],
+      bass: [0,null,null,null, null,null,null,7, 5,null,null,null, 3,null,null,null],
+      lead: [12,null,null,16, null,null,19,null, 17,null,null,16, null,12,null,null] },
+  ];
+
+  let ac, musicGain, sfxGain, analyser, noise;
+  let idx = 0, playing = false, timer = null, nextTime = 0, step = 0;
+  let elapsed = 0, startCtx = 0, volume = 0.7, muted = false;
+
+  function ensure() {
+    if (!ac) {
+      ac = new (window.AudioContext || window.webkitAudioContext)();
+      analyser = ac.createAnalyser(); analyser.fftSize = 128; analyser.smoothingTimeConstant = 0.78;
+      analyser.connect(ac.destination);
+      musicGain = ac.createGain(); musicGain.connect(analyser);
+      sfxGain = ac.createGain(); sfxGain.gain.value = 0.7; sfxGain.connect(analyser);
+      noise = ac.createBuffer(1, ac.sampleRate, ac.sampleRate);
+      const d = noise.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+      applyVolume();
+    }
+    if (ac.state === "suspended") ac.resume();
+    return ac;
+  }
+  function applyVolume() {
+    if (!musicGain) return;
+    const v = muted ? 0 : volume * volume; // squared feels linear to the ear
+    musicGain.gain.setTargetAtTime(v * 0.9, ac.currentTime, 0.03);
+  }
+
+  // ---- instruments ----
+  function env(g, t, peak, decay) { g.gain.setValueAtTime(peak, t); g.gain.exponentialRampToValueAtTime(0.0008, t + decay); }
+  function kick(t, out) {
+    const o = ac.createOscillator(), g = ac.createGain();
+    o.frequency.setValueAtTime(150, t); o.frequency.exponentialRampToValueAtTime(42, t + 0.14);
+    env(g, t, 0.9, 0.32); o.connect(g).connect(out); o.start(t); o.stop(t + 0.35);
+  }
+  function noiseHit(t, out, type, freq, peak, decay) {
+    const s = ac.createBufferSource(), f = ac.createBiquadFilter(), g = ac.createGain();
+    s.buffer = noise; f.type = type; f.frequency.value = freq;
+    env(g, t, peak, decay); s.connect(f).connect(g).connect(out); s.start(t, Math.random() * 0.5); s.stop(t + decay + 0.02);
+  }
+  function tone(t, out, type, freq, dur, peak, cutoff) {
+    const o = ac.createOscillator(), f = ac.createBiquadFilter(), g = ac.createGain();
+    o.type = type; o.frequency.value = freq; f.type = "lowpass"; f.frequency.value = cutoff; f.Q.value = 4;
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(peak, t + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.0008, t + dur);
+    o.connect(f).connect(g).connect(out); o.start(t); o.stop(t + dur + 0.02);
+  }
+  const hz = (root, semi) => root * 2 ** (semi / 12);
+
+  function playStep(s, t, spb) {
+    const tr = TRACKS[idx];
+    if (tr.kick.includes(s)) kick(t, musicGain);
+    if (tr.snare.includes(s)) noiseHit(t, musicGain, "bandpass", 1800, 0.45, 0.16);
+    if (tr.hat.includes(s)) noiseHit(t, musicGain, "highpass", 7500, 0.16, 0.05);
+    if (tr.bass[s] != null) tone(t, musicGain, "sawtooth", hz(tr.root, tr.bass[s]), spb * 1.8, 0.32, 520);
+    if (tr.lead[s] != null) tone(t, musicGain, "square", hz(tr.root * 4, tr.lead[s]), spb * 1.6, 0.06, 2600);
+  }
+
+  function schedule() {
+    const spb = 60 / TRACKS[idx].bpm / 4;
+    while (nextTime < ac.currentTime + 0.12) { playStep(step % 16, nextTime, spb); nextTime += spb; step++; }
+    if (position() >= TRACKS[idx].dur) next();
+  }
+
+  const position = () => playing ? elapsed + (ac.currentTime - startCtx) : elapsed;
+
+  function play() {
+    ensure();
+    playing = true; startCtx = ac.currentTime; nextTime = ac.currentTime + 0.05; step = 0;
+    clearInterval(timer); timer = setInterval(schedule, 25);
+    render();
+    Bus.emit("music", { playing: true, track: TRACKS[idx] });
+  }
+  function pause() {
+    if (!playing) return;
+    elapsed = position(); playing = false; clearInterval(timer);
+    render();
+    Bus.emit("music", { playing: false, track: TRACKS[idx] });
+  }
+  function load(i, autoplay) {
+    const wasPlaying = playing || autoplay;
+    if (playing) { clearInterval(timer); playing = false; }
+    idx = (i + TRACKS.length) % TRACKS.length; elapsed = 0;
+    if (wasPlaying) play(); else render();
+  }
+  function next() { load(idx + 1); toast("Music", `${TRACKS[idx].title} · ${TRACKS[idx].artist}`); }
+  function prev() { if (position() > 3) { elapsed = 0; if (playing) startCtx = ac.currentTime; render(); } else load(idx - 1); }
+  function seek(frac) { elapsed = clamp(frac, 0, 0.999) * TRACKS[idx].dur; if (playing) startCtx = ac.currentTime; render(); }
+
+  // ---- soundboard (shares the audio graph so the visualizer reacts to it) ----
+  const SFX = {
+    airhorn(t) {
+      [0, 4, 7].forEach(d => {
+        const o = ac.createOscillator(), f = ac.createBiquadFilter(), g = ac.createGain();
+        o.type = "sawtooth"; o.frequency.setValueAtTime(hz(392, d) * 0.92, t); o.frequency.linearRampToValueAtTime(hz(392, d), t + 0.05);
+        f.type = "lowpass"; f.frequency.value = 3200;
+        g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.16, t + 0.02);
+        for (let k = 1; k < 3; k++) { g.gain.setValueAtTime(0.16, t + k * 0.22 - 0.03); g.gain.linearRampToValueAtTime(0.02, t + k * 0.22); g.gain.linearRampToValueAtTime(0.16, t + k * 0.22 + 0.02); }
+        g.gain.setValueAtTime(0.16, t + 0.9); g.gain.exponentialRampToValueAtTime(0.0008, t + 1.1);
+        o.connect(f).connect(g).connect(sfxGain); o.start(t); o.stop(t + 1.15);
+      });
+    },
+    riser(t) {
+      const s = ac.createBufferSource(), f = ac.createBiquadFilter(), g = ac.createGain();
+      s.buffer = noise; s.loop = true; f.type = "bandpass"; f.Q.value = 6;
+      f.frequency.setValueAtTime(300, t); f.frequency.exponentialRampToValueAtTime(9000, t + 1.4);
+      g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.6, t + 1.3); g.gain.exponentialRampToValueAtTime(0.0008, t + 1.5);
+      s.connect(f).connect(g).connect(sfxGain); s.start(t); s.stop(t + 1.55);
+    },
+    laser(t) {
+      const o = ac.createOscillator(), g = ac.createGain();
+      o.type = "square"; o.frequency.setValueAtTime(1800, t); o.frequency.exponentialRampToValueAtTime(110, t + 0.35);
+      env(g, t, 0.18, 0.4); o.connect(g).connect(sfxGain); o.start(t); o.stop(t + 0.42);
+    },
+    drop(t) {
+      const o = ac.createOscillator(), g = ac.createGain();
+      o.frequency.setValueAtTime(220, t); o.frequency.exponentialRampToValueAtTime(30, t + 0.9);
+      env(g, t, 0.95, 1.1); o.connect(g).connect(sfxGain); o.start(t); o.stop(t + 1.15);
+      kick(t, sfxGain);
+    },
+  };
+  function sfx(name) { ensure(); SFX[name](ac.currentTime + 0.01); }
+
+  // ---- UI ----
+  const fmtT = s => `${Math.floor(s / 60)}:${pad2(Math.floor(s % 60))}`;
+  $("#m-prev").innerHTML = ICONS.prev;
+  $("#m-next").innerHTML = ICONS.next;
+  const queue = $("#queue");
+  queue.innerHTML = TRACKS.map((t, i) => `<button type="button" data-i="${i}"><span class="q-n">${pad2(i + 1)}</span><span class="q-name">${t.title} · ${t.artist}</span><span class="q-bpm">${t.bpm} BPM</span></button>`).join("");
+
+  function render() {
+    const t = TRACKS[idx];
+    $("#np-title").textContent = t.title;
+    $("#np-artist").textContent = t.artist;
+    $("#np-meta").textContent = `${t.bpm} BPM · TRACK ${idx + 1}/${TRACKS.length}`;
+    $("#t-dur").textContent = fmtT(t.dur);
+    const p = $("#m-play");
+    p.innerHTML = playing ? ICONS.pause : ICONS.play;
+    p.setAttribute("aria-label", playing ? "Pause" : "Play");
+    p.classList.toggle("is-on", playing);
+    $("#music-state").textContent = playing ? "Playing" : "Paused";
+    $("#music-dot").className = "dot" + (playing ? " ok" : "");
+    queue.querySelectorAll("button").forEach(b => b.setAttribute("aria-current", +b.dataset.i === idx));
+    $("#m-mute").innerHTML = muted || volume === 0 ? ICONS.mute : ICONS.vol;
+    $("#m-mute").classList.toggle("is-on", muted);
+    $("#m-mute").setAttribute("aria-pressed", muted);
+    renderProgress();
+  }
+  function renderProgress() {
+    const t = TRACKS[idx], pos = ac ? position() : elapsed, pct = clamp(pos / t.dur, 0, 1) * 100;
+    $("#progress-fill").style.width = pct + "%";
+    $("#progress").setAttribute("aria-valuenow", Math.round(pct));
+    $("#t-cur").textContent = fmtT(Math.min(pos, t.dur));
+  }
+
+  $("#m-play").addEventListener("click", () => playing ? pause() : play());
+  $("#m-next").addEventListener("click", next);
+  $("#m-prev").addEventListener("click", prev);
+  queue.addEventListener("click", e => { const b = e.target.closest("button"); if (b) load(+b.dataset.i, true); });
+  $("#progress").addEventListener("click", e => { const r = e.currentTarget.getBoundingClientRect(); seek((e.clientX - r.left) / r.width); });
+  $("#progress").addEventListener("keydown", e => {
+    const d = TRACKS[idx].dur;
+    if (e.key === "ArrowRight") { seek((position() + 5) / d); e.preventDefault(); }
+    if (e.key === "ArrowLeft") { seek((position() - 5) / d); e.preventDefault(); }
+  });
+  const vol = $("#m-vol");
+  vol.addEventListener("input", () => {
+    volume = vol.value / 100; muted = false;
+    vol.style.setProperty("--pct", vol.value + "%");
+    $("#m-vol-out").textContent = vol.value;
+    applyVolume(); render();
+  });
+  $("#m-mute").addEventListener("click", () => { muted = !muted; applyVolume(); render(); });
+
+  // Visualizer + spinning cover, one rAF loop
+  const viz = $("#viz"), vctx = viz.getContext("2d");
+  let spin = 0, last = performance.now();
+  const bins = new Uint8Array(64);
+  function frame(now) {
+    const dt = now - last; last = now;
+    const dpr = window.devicePixelRatio || 1, w = viz.clientWidth, h = viz.clientHeight;
+    if (viz.width !== Math.round(w * dpr)) { viz.width = Math.round(w * dpr); viz.height = Math.round(h * dpr); }
+    vctx.setTransform(dpr, 0, 0, dpr, 0, 0); vctx.clearRect(0, 0, w, h);
+    const N = 40, gap = 3, bw = (w - gap * (N - 1)) / N;
+    if (analyser) analyser.getByteFrequencyData(bins);
+    for (let i = 0; i < N; i++) {
+      const raw = analyser ? bins[Math.floor(i * 0.9)] / 255 : 0;
+      const idle = 0.05 + 0.03 * Math.sin(now / 600 + i * 0.5);
+      const v = Math.max(raw, idle);
+      const bh = Math.max(2, v * h);
+      const g = vctx.createLinearGradient(0, h, 0, h - bh);
+      g.addColorStop(0, "rgba(180,77,255,0.9)"); g.addColorStop(1, "rgba(0,240,255,0.95)");
+      vctx.fillStyle = g;
+      vctx.fillRect(i * (bw + gap), h - bh, bw, bh);
+    }
+    if (playing && !reduceMotion) { spin = (spin + dt * 0.12) % 360; $("#cover").style.setProperty("--spin", spin + "deg"); }
+    if (playing) renderProgress();
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+
+  render();
+  return { sfx, current: () => TRACKS[idx], pause, isPlaying: () => playing };
+})();
+
+/* ════════════════════ Widget 4: Quick actions ════════════════════ */
+const Actions = (() => {
+  const grid = $("#actions"), input = $("#cmd-input");
+  let adLeft = 0, clipN = 422;
+
+  // Each action: label (may depend on state), icon, keywords for the command bar, run().
+  const ACTIONS = [
+    { id: "stream.toggle", icon: "live", danger: () => Store.live,
+      label: () => Store.live ? "End stream" : "Go live", on: () => false, keys: "go live end stop start stream",
+      run() {
+        Store.live = !Store.live;
+        if (Store.live) { Store.startedAt = Date.now(); Store.viewers = 40; }
+        Bus.emit("notice", { label: "Stream", text: Store.live ? "You are live. Have a good one." : "Stream ended. Nice session." });
+        toast("Stream", Store.live ? "You are live" : "Stream ended");
+        Header.render();
+      } },
+    { id: "mic.toggle", icon: "mic", label: () => Store.micOn ? "Mute mic" : "Unmute mic",
+      on: () => !Store.micOn, danger: () => !Store.micOn, keys: "mic microphone mute unmute",
+      run() { Store.micOn = !Store.micOn; toast("Mic", Store.micOn ? "Mic is on" : "Mic muted"); Header.render(); } },
+    { id: "clip.create", icon: "clip", label: () => "Clip last 30s", keys: "clip save highlight",
+      run() {
+        const name = `clip_${++clipN}.mp4`;
+        toast("Clip", `Saved ${name}`);
+        Bus.emit("notice", { label: "Clip", text: `Clip saved: ${name} (last 30 seconds)` });
+      } },
+    { id: "ad.run", icon: "ad", label: () => adLeft ? `Ad · ${adLeft}s left` : "Run 90s ad", disabled: () => adLeft > 0 || !Store.live, keys: "ad commercial break",
+      run() {
+        adLeft = 90;
+        Bus.emit("notice", { label: "Ad", text: "A 90 second ad break started. Viewers with Turbo skip it." });
+        const t = setInterval(() => { adLeft--; render(); if (!adLeft) { clearInterval(t); toast("Ad", "Ad break finished"); } }, 1000);
+      } },
+    { id: "shield.toggle", icon: "shield", label: () => Store.shield ? "Shield mode on" : "Shield mode",
+      on: () => Store.shield, keys: "shield safety raid protect slow followers",
+      run() {
+        Store.shield = !Store.shield;
+        $("#chat-tag").textContent = Store.shield ? "Shield mode · followers-only, slow 10 s" : "Twitch IRC · EventSub";
+        Bus.emit("notice", { label: "Shield", text: Store.shield ? "Shield mode on. Chat is followers-only with a 10 s slow mode." : "Shield mode off." });
+        toast("Shield", Store.shield ? "Shield mode on" : "Shield mode off");
+      } },
+    { id: "poll.start", icon: "poll", label: () => "Start poll", keys: "poll vote chat",
+      run() { Bus.emit("notice", { label: "Poll", text: "Poll started: Ranked or chill customs next? Vote 1 or 2 in chat (2 min)." }); toast("Poll", "Poll is live in chat"); } },
+    { id: "marker.add", icon: "marker", label: () => "Add marker", keys: "marker bookmark vod highlight",
+      run() { toast("Marker", `Marker added at ${Header.uptimeText()}`); } },
+    { id: "raid.start", icon: "raid", label: () => "Raid a channel", disabled: () => !Store.live, keys: "raid host send",
+      run() { Bus.emit("notice", { label: "Raid", text: `Raid ready: sending ${fmt(Store.viewers)} viewers to @kairo_syn in 10 s.` }); toast("Raid", "Raid queued to @kairo_syn"); } },
+  ];
+
+  function render() {
+    const q = input.value.trim().toLowerCase();
+    const list = ACTIONS.filter(a => !q || (a.label() + " " + a.keys).toLowerCase().includes(q));
+    grid.innerHTML = list.length ? list.map(a => {
+      const on = a.on?.(), dis = a.disabled?.(), danger = a.danger?.();
+      return `<button type="button" class="btn action${danger ? " danger" : ""}${on ? " is-on" : ""}${on && danger ? " danger" : ""}" data-id="${a.id}" ${dis ? "disabled" : ""} aria-pressed="${!!on}">${ICONS[a.icon]}<span>${a.label()}</span></button>`;
+    }).join("") : `<div class="empty-cmd">No command matches "${input.value.replace(/[<>&"]/g, "")}". Try clip, ad or mic.</div>`;
+    return list;
+  }
+
+  async function run(id) {
+    const a = ACTIONS.find(x => x.id === id);
+    if (!a || a.disabled?.()) return;
+    a.run();            // optimistic update
+    render();
+    await Api.action(id); // confirm with backend (mocked)
+  }
+
+  grid.addEventListener("click", e => { const b = e.target.closest("button[data-id]"); if (b) run(b.dataset.id); });
+  input.addEventListener("input", render);
+  input.addEventListener("keydown", e => {
+    if (e.key === "Enter") { const l = render().filter(a => !a.disabled?.()); if (l[0]) { run(l[0].id); input.select(); } }
+    if (e.key === "Escape") { input.value = ""; render(); input.blur(); }
+  });
+
+  // Scenes. API: OBS WebSocket v5 → SetCurrentProgramScene { sceneName }
+  const SCENES = ["Starting", "Gameplay", "Just Chatting", "BRB"];
+  const scenes = $("#scenes");
+  function renderScenes() {
+    scenes.innerHTML = SCENES.map(s => `<button type="button" data-scene="${s}" aria-pressed="${s === Store.scene}">${s.toUpperCase()}</button>`).join("");
+  }
+  scenes.addEventListener("click", e => {
+    const b = e.target.closest("button"); if (!b || b.dataset.scene === Store.scene) return;
+    Store.scene = b.dataset.scene; renderScenes();
+    toast("Scene", `Switched to ${Store.scene}`);
+    Api.action("obs.scene", { sceneName: Store.scene });
+  });
+
+  // Soundboard. API: in production these would also trigger the overlay alert box.
+  const PADS = [["airhorn", "Airhorn"], ["riser", "Hype riser"], ["laser", "Laser"], ["drop", "Bass drop"]];
+  const pads = $("#pads");
+  pads.innerHTML = PADS.map(([id, name], i) => `<button type="button" class="pad" data-sfx="${id}"><span class="k">${i + 1}</span><span>${name}</span></button>`).join("");
+  function hit(btn) { Music.sfx(btn.dataset.sfx); btn.classList.add("hit"); setTimeout(() => btn.classList.remove("hit"), 140); }
+  pads.addEventListener("click", e => { const b = e.target.closest(".pad"); if (b) hit(b); });
+
+  // Global shortcuts
+  document.addEventListener("keydown", e => {
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") { e.preventDefault(); input.focus(); input.select(); return; }
+    if (e.target.closest("input, textarea")) return;
+    const n = +e.key;
+    if (n >= 1 && n <= 4) hit(pads.children[n - 1]);
+  });
+
+  render(); renderScenes();
+  return { render };
+})();
+
+/* ════════════════════ Header ════════════════════ */
+const Header = (() => {
+  function uptimeText(words) {
+    const s = Math.floor((Date.now() - Store.startedAt) / 1000);
+    const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+    return words ? `${h}h ${m}m` : `${pad2(h)}:${pad2(m)}:${pad2(sec)}`;
+  }
+  function render() {
+    const pill = $("#live-pill");
+    pill.classList.toggle("off", !Store.live);
+    $("#live-text").textContent = Store.live ? "LIVE" : "OFFLINE";
+    $("#uptime").textContent = Store.live ? uptimeText() : "--:--:--";
+    $("#mic-dot").className = "dot " + (Store.micOn ? "ok" : "bad");
+    $("#mic-text").textContent = Store.micOn ? "On" : "Muted";
+    const d = new Date();
+    $("#clock").textContent = `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
+    Actions.render();
+  }
+  setInterval(() => {
+    const d = new Date();
+    $("#uptime").textContent = Store.live ? uptimeText() : "--:--:--";
+    $("#clock").textContent = `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
+  }, 1000);
+  render();
+  return { render, uptimeText };
+})();
+
+/* ════════════════════ MockSource ════════════════════
+   Stand-in for the backend WebSocket. To go live, delete this block and add:
+
+   const ws = new WebSocket(`wss://api.hydeck.app/v1/stream?workspace=${id}`);
+   ws.onmessage = e => { const evt = JSON.parse(e.data); Bus.emit(evt.type, evt); };
+
+   Every widget above keeps working unchanged because it only listens to the Bus. */
+const MockSource = (() => {
+  const USERS = [
+    ["pixel_ronin", "#00f0ff", ["sub"]], ["nyx.exe", "#b44dff", []], ["glitchmother", "#3dff6e", ["mod"]],
+    ["kaiju_kev", "#ff7ad9", ["sub"]], ["sable_vx", "#7aa2ff", []], ["byte_witch", "#ffb020", ["vip"]],
+    ["orbit404", "#5ef0c8", []], ["lofi_lia", "#ff8a65", ["sub"]], ["zer0cool", "#c3a6ff", []], ["meowtrix", "#9be15d", []],
+  ];
+  const LINES = [
+    "that clutch was insane", "GG", "W streamer", "what's your crosshair code?", "this music goes hard, what track?",
+    "LETS GOOO", "chat is moving fast today", "first time here, the overlay is clean", "save that clip pls",
+    "turn the game audio up a little", "rank up tonight?", "hydrate check 💧", "how long you streaming today?",
+    "that rotation was textbook", "no way he survived that", "1 HP gaming", "the new scene transitions look sick",
+    "lurking from work 👀", "can we get a poll for next map", "that's a 200 IQ play",
+  ];
+  const TIPS = ["buy yourself a coffee", "for the clutch", "new setup fund", "keep the streams coming"];
+  let target = 1250, v = Store.viewers;
+
+  // Viewers every 2 s: eased random walk toward a drifting target.
+  setInterval(() => {
+    if (Store.live) {
+      target = clamp(target + rand(-40, 42), 700, 2200);
+      v += (target - v) * 0.08 + rand(-12, 12);
+    } else v *= 0.6;
+    Bus.emit("viewers", { value: Math.max(0, Math.round(v)), ts: Date.now() });
+  }, 2000);
+
+  // Chat at a pace that scales with audience size; slower in shield mode.
+  (function chatLoop() {
+    if (Store.live) {
+      const [user, color, badges] = pick(USERS);
+      Store.chatTimes.push(Date.now());
+      Bus.emit("chat", { user, color, badges, text: pick(LINES), ts: Date.now() });
+    }
+    const base = Store.shield ? 3200 : clamp(1500000 / Math.max(v, 200), 500, 2600);
+    setTimeout(chatLoop, rand(base * 0.5, base * 1.4));
+  })();
+
+  // Occasional alerts
+  (function alertLoop() {
+    if (Store.live) {
+      const user = pick(USERS)[0], r = Math.random();
+      if (r < 0.45) { Store.follows++; Bus.emit("follow", { user }); }
+      else if (r < 0.75) { Store.subs++; Bus.emit("sub", { user, tier: Math.random() < 0.85 ? 1 : 2, months: Math.ceil(rand(1, 14)) }); }
+      else if (r < 0.9) Bus.emit("tip", { user, amount: pick([2, 5, 5, 10, 20]), note: pick(TIPS) });
+      else { const count = Math.round(rand(20, 160)); v += count; Bus.emit("raid", { user, count }); }
+    }
+    setTimeout(alertLoop, rand(9000, 18000));
+  })();
+
+  // Encoder/system stats every 1 s
+  setInterval(() => {
+    Bus.emit("system", {
+      cpu: Store.live ? rand(34, 58) : rand(8, 16),
+      gpu: Store.live ? rand(62, 88) : rand(5, 12),
+      ram: rand(61, 64),
+      kbps: Store.live ? rand(5850, 6080) : 0,
+      dropped: Store.live ? Math.max(0, rand(-0.05, 0.25)) : 0,
+    });
+  }, 1000);
+
+  // Warm the chat so it opens full.
+  for (let i = 0; i < 14; i++) {
+    const [user, color, badges] = pick(USERS);
+    Store.chatTimes.push(Date.now() - rand(0, 55000));
+    Chat.message({ user, color, badges, text: pick(LINES) });
+  }
+  Chat.event("raid", "Raid", "kairo_syn is raiding with 112 viewers");
+  Chat.event("sub", "Sub", "lofi_lia subscribed at Tier 1 · 7 months");
+  Bus.emit("system", { cpu: 41, gpu: 74, ram: 62, kbps: 6020, dropped: 0.08 });
+  Analytics.renderKpis();
+})();
+</script>
